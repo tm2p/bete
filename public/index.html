@@ -397,30 +397,6 @@
     .badge.edit { color: var(--yellow); border-color: rgba(255,228,94,0.36); }
     .badge.delete { color: var(--red); border-color: rgba(255,79,109,0.42); }
 
-    .image-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 14px;
-    }
-
-    .image-card {
-      overflow: hidden;
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      background: rgba(255,255,255,0.035);
-    }
-
-    .image-preview {
-      height: 180px;
-      display: grid;
-      place-items: center;
-      background: #05070b;
-      color: var(--faint);
-      font: 700 12px/1 "JetBrains Mono", monospace;
-    }
-
-    .image-preview img { width: 100%; height: 100%; object-fit: cover; }
-    .image-meta { padding: 14px; display: grid; gap: 8px; }
     .filename { font-size: 13px; font-weight: 900; word-break: break-word; }
     .link { color: var(--cyan); text-decoration: none; font-weight: 900; }
     .link:hover { text-decoration: underline; }
@@ -456,8 +432,8 @@
     <section class="hero">
       <div class="brand-card">
         <div class="eyebrow"><span class="pulse"></span> Discord moderation command center</div>
-        <h1>Voice. Text. Image. One Watch Floor.</h1>
-        <p class="subtitle">Single-page watcher for live voice bridge, captured messages, and uploaded image evidence. Built for dense moderation review without jumping between pages.</p>
+        <h1>Voice. Text. One Watch Floor.</h1>
+        <p class="subtitle">Single-page watcher for live voice bridge and captured Discord messages, including stickers, embeds, replies, and uploaded image evidence inline.</p>
       </div>
       <div class="status-card">
         <div class="status-row"><span class="status-label">WebSocket</span><span class="status-value"><span id="wsDot" class="dot"></span><span id="wsStatusText">Connecting</span></span></div>
@@ -470,7 +446,6 @@
       <div class="tabs">
         <button class="tab-btn active" data-tab="voice">Voice</button>
         <button class="tab-btn" data-tab="text">Text</button>
-        <button class="tab-btn" data-tab="images">Images</button>
       </div>
       <div class="filter-row">
         <span>Channel / Thread</span>
@@ -521,13 +496,6 @@
         <div id="textList" class="feed"></div>
       </div>
     </section>
-
-    <section id="images" class="tab-content">
-      <div class="content-card">
-        <div class="card-title"><h2>Image Watch</h2><span class="mini">picser raw commit</span></div>
-        <div id="imageGrid" class="image-grid"></div>
-      </div>
-    </section>
   </main>
 
   <script>
@@ -536,7 +504,6 @@
       activeTab: 'voice',
       selectedChannel: '',
       text: [],
-      images: [],
       isStreaming: false,
       isListening: false,
       audioContextTransmit: null,
@@ -568,7 +535,6 @@
       visualizer: document.getElementById('visualizer'),
       userList: document.getElementById('userList'),
       textList: document.getElementById('textList'),
-      imageGrid: document.getElementById('imageGrid'),
     };
 
     for (let i = 0; i < 32; i++) {
@@ -714,7 +680,7 @@
         if (item) Object.assign(item, { deleted_at: message.data.deleted_at, type: 'deleted' });
         renderText();
       }
-      if (message.type === 'attachment_uploaded') fetchImages();
+      if (message.type === 'attachment_uploaded') fetchText();
     }
 
     function renderUsers(users) {
@@ -744,13 +710,6 @@
       const result = await apiRequest(`/api/messages?channel=${encodeURIComponent(state.selectedChannel)}&type=text&limit=80`);
       state.text = result.data || [];
       renderText();
-    }
-
-    async function fetchImages() {
-      if (!state.selectedChannel) return renderImages();
-      const result = await apiRequest(`/api/messages?channel=${encodeURIComponent(state.selectedChannel)}&type=image&limit=80`);
-      state.images = result.data || [];
-      renderImages();
     }
 
     function parseMetadata(value) {
@@ -876,46 +835,6 @@
       return wrap;
     }
 
-    function renderImages() {
-      el.imageGrid.replaceChildren();
-      if (!state.selectedChannel) return appendEmpty(el.imageGrid, 'Select channel to view image captures');
-      if (state.images.length === 0) return appendEmpty(el.imageGrid, 'No image captures yet');
-      for (const image of state.images) {
-        const card = document.createElement('article');
-        card.className = 'image-card';
-        const preview = document.createElement('div');
-        preview.className = 'image-preview';
-        if (image.uploaded_url) {
-          const img = document.createElement('img');
-          img.src = image.uploaded_url;
-          img.alt = image.filename;
-          preview.appendChild(img);
-        } else {
-          preview.textContent = image.upload_status || 'pending';
-        }
-        const meta = document.createElement('div');
-        meta.className = 'image-meta';
-        const filename = document.createElement('div');
-        filename.className = 'filename';
-        filename.textContent = image.filename;
-        const info = document.createElement('div');
-        info.className = 'time';
-        info.textContent = `${(image.size / 1024).toFixed(1)}KB • ${image.upload_status}${image.thread_id ? ' • thread' : ''}`;
-        meta.append(filename, info);
-        if (image.uploaded_url) {
-          const link = document.createElement('a');
-          link.className = 'link';
-          link.href = image.uploaded_url;
-          link.target = '_blank';
-          link.rel = 'noreferrer';
-          link.textContent = 'open raw commit';
-          meta.appendChild(link);
-        }
-        card.append(preview, meta);
-        el.imageGrid.appendChild(card);
-      }
-    }
-
     function appendBadge(parent, label, className) {
       const badge = document.createElement('span');
       badge.className = `badge ${className}`;
@@ -1015,7 +934,6 @@
         document.getElementById(state.activeTab).classList.add('active');
         el.activeTabLabel.textContent = button.textContent;
         if (state.activeTab === 'text') await fetchText();
-        if (state.activeTab === 'images') await fetchImages();
       });
     });
 
@@ -1026,14 +944,13 @@
     el.listenBtn.addEventListener('click', toggleListen);
     el.channelFilter.addEventListener('change', async () => {
       state.selectedChannel = el.channelFilter.value;
-      await Promise.all([fetchText(), fetchImages()]).catch((error) => showError(error.message));
+      await fetchText().catch((error) => showError(error.message));
     });
 
     connectWebSocket();
     loadGuilds().then(refreshStatus).catch((error) => showError(error.message));
     setInterval(() => {
       if (state.activeTab === 'text') fetchText().catch(() => {});
-      if (state.activeTab === 'images') fetchImages().catch(() => {});
     }, 7000);
   </script>
 </body>
