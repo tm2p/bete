@@ -11,6 +11,8 @@ import { createChildLogger, logger } from "./logger";
 import { getMetrics, uptimeGauge } from "./metrics";
 import { discordPlayer } from "./player";
 import type { VoiceController } from "./voiceController";
+import { getDatabase } from "./muxer-queue";
+import { getMessagesByChannel, getAttachmentsByChannel } from "./moderation/messageStore";
 
 const wsLogger = createChildLogger("webserver");
 
@@ -133,6 +135,44 @@ export function startWebserver(
     }
   });
 
+  // Moderation API endpoints
+  app.get("/api/messages", async (req, res, next) => {
+    try {
+      const db = getDatabase();
+      const { channel, type, limit = "50", offset = "0" } = req.query as {
+        channel?: string;
+        type?: string;
+        limit?: string;
+        offset?: string;
+      };
+
+      if (!channel) {
+        throw new AppError("channel query parameter is required", "MISSING_CHANNEL", 400);
+      }
+
+      const limitNum = Math.min(parseInt(limit) || 50, 100);
+      const offsetNum = parseInt(offset) || 0;
+
+      if (type === "image") {
+        const attachments = getAttachmentsByChannel(db, channel, limitNum, offsetNum);
+        res.json({
+          type: "image",
+          data: attachments,
+          count: attachments.length,
+        });
+      } else {
+        const messages = getMessagesByChannel(db, channel, limitNum, offsetNum);
+        res.json({
+          type: "text",
+          data: messages,
+          count: messages.length,
+        });
+      }
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Inbound: Discord PCM → tagged chunks → browser
   (global as any).broadcastPcmToWeb = (chunk: Buffer, userId: string) => {
     let hash = 0;
@@ -168,6 +208,33 @@ export function startWebserver(
       if (client.readyState === 1) client.send(payload);
     });
   }
+
+  function broadcastMessageEvent(type: string, data: any) {
+    const payload = JSON.stringify({
+      type,
+      data,
+      timestamp: Date.now(),
+    });
+    wsClients.forEach((client) => {
+      if (client.readyState === 1) client.send(payload);
+    });
+  }
+
+  (global as any).broadcastMessageCreated = (data: any) => {
+    broadcastMessageEvent("message_created", data);
+  };
+
+  (global as any).broadcastMessageUpdated = (data: any) => {
+    broadcastMessageEvent("message_updated", data);
+  };
+
+  (global as any).broadcastMessageDeleted = (data: any) => {
+    broadcastMessageEvent("message_deleted", data);
+  };
+
+  (global as any).broadcastAttachmentUploaded = (data: any) => {
+    broadcastMessageEvent("attachment_uploaded", data);
+  };
 
   // --- Outbound: browser PCM (24kHz mono) → Opus → Discord ---
   const RATE = 48000;
