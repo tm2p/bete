@@ -37,10 +37,10 @@
   "devDependencies": {
     "@biomejs/biome": "latest",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/bun": "latest",
     "@types/express": "^5.0.6",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/ws": "^8.18.1",
+    "bun-types": "latest",
     "pino-pretty": "^10.3.1",
     "vitest": "latest"
   }
