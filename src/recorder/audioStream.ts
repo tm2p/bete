@@ -1,4 +1,5 @@
 import { EndBehaviorType, type VoiceReceiver } from "@discordjs/voice";
+import { config } from "../config";
 
 export interface AudioStreamHandlers {
   onPacket: (chunk: Buffer) => void;
@@ -14,7 +15,7 @@ export function subscribeToAudioStream(
   const audioStream = receiver.subscribe(userId, {
     end: {
       behavior: EndBehaviorType.AfterSilence,
-      duration: 3000,
+      duration: config.audioStreamSilenceDurationMs,
     },
   });
 

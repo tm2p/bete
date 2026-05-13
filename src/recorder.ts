@@ -59,7 +59,11 @@ export async function startRecording(
 
   // Tunggu sampai benar-benar terhubung
   try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+    await entersState(
+      connection,
+      VoiceConnectionStatus.Ready,
+      config.voiceConnectionTimeoutMs,
+    );
     if (config.verbose) {
       console.log("[recorder] Connected to voice channel. Recording started.");
     }
@@ -97,7 +101,7 @@ export async function startRecording(
 
     try {
       // --- OGG file recording with segment rotation ---
-      const packetFilterForOgg = new PacketFilter(8);
+      const packetFilterForOgg = new PacketFilter(config.packetFilterMinSize);
       const audioStream = receiver.subscribe(userId, {
         end: {
           behavior: EndBehaviorType.AfterSilence,
@@ -201,8 +205,16 @@ export async function startRecording(
     }
     try {
       await Promise.race([
-        entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-        entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+        entersState(
+          connection,
+          VoiceConnectionStatus.Signalling,
+          config.reconnectTimeoutMs,
+        ),
+        entersState(
+          connection,
+          VoiceConnectionStatus.Connecting,
+          config.reconnectTimeoutMs,
+        ),
       ]);
       // Berhasil reconnect
     } catch {

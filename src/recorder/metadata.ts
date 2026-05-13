@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { Client, VoiceChannel } from "discord.js-selfbot-v13";
+import { config } from "../config";
 import type { SegmentMetadata, SegmentState, UserMetadata } from "../types";
 
 export async function collectUserMetadata(
@@ -30,8 +31,19 @@ export async function collectUserMetadata(
     tag: user?.tag ?? "Unknown#0000",
     displayName: member?.displayName ?? username,
     avatarUrl:
-      user?.displayAvatarURL({ format: "png", size: 64 }) ??
-      "https://cdn.discordapp.com/embed/avatars/0.png",
+      user?.displayAvatarURL({
+        format: "png",
+        size: config.avatarSize as
+          | 16
+          | 32
+          | 64
+          | 128
+          | 256
+          | 512
+          | 1024
+          | 2048
+          | 4096,
+      }) ?? "https://cdn.discordapp.com/embed/avatars/0.png",
     bot: user?.bot ?? false,
     roles,
     highestRole: roles[0] ?? null,

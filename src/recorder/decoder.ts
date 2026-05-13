@@ -1,4 +1,5 @@
 import prism from "prism-media";
+import { config } from "../config";
 
 export interface OpusDecoderOptions {
   cooldownMs: number;
@@ -23,7 +24,11 @@ export class OpusDecoder {
     this.createDecoderFn =
       options.createDecoder ??
       (() =>
-        new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 }));
+        new prism.opus.Decoder({
+          frameSize: config.opusFrameSize,
+          channels: config.audioChannels as 1 | 2,
+          rate: config.audioSampleRate as 8000 | 12000 | 16000 | 24000 | 48000,
+        }));
   }
 
   rotateIfNeeded(): void {

@@ -59,7 +59,7 @@ client.on("ready", async () => {
   }
 
   // Start Webserver
-  startWebserver(3000);
+  startWebserver(config.webserverPort);
 });
 
 client.on("error", (err) => {
