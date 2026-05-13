@@ -437,7 +437,7 @@ const state = {
       }
       try {
         state.opusDecoder = new AudioDecoder({
-          output: (audioData) => playAudioData(audioData),
+          output: (audioData) => playAudioDataDirect(audioData),
           error: (error) => {
             console.error('Opus decode error:', error);
             showError(`Opus decode error: ${error.message}`);
@@ -455,6 +455,39 @@ const state = {
         state.isListening = false;
         el.listenBtn.textContent = 'Join Listen Channel';
         el.listenStatus.textContent = 'speaker off';
+      }
+    }
+
+    function playAudioDataDirect(audioData) {
+      if (!state.audioContextListen || !state.isListening) {
+        audioData.close();
+        return;
+      }
+      try {
+        const sampleRate = audioData.sampleRate;
+        const frameCount = audioData.numberOfFrames;
+        const numberOfChannels = audioData.numberOfChannels;
+        const audioBuffer = state.audioContextListen.createBuffer(
+          numberOfChannels,
+          frameCount,
+          sampleRate
+        );
+        for (let ch = 0; ch < numberOfChannels; ch++) {
+          const channelData = audioBuffer.getChannelData(ch);
+          const tempArray = new Float32Array(frameCount);
+          audioData.copyTo(tempArray, { planeIndex: ch });
+          channelData.set(tempArray);
+        }
+        const source = state.audioContextListen.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(state.audioContextListen.destination);
+        const startAt = Math.max(state.nextStartTime, state.audioContextListen.currentTime);
+        source.start(startAt);
+        state.nextStartTime = startAt + audioBuffer.duration;
+      } catch (error) {
+        console.error('Play audio error:', error);
+      } finally {
+        audioData.close();
       }
     }
 
@@ -481,39 +514,6 @@ const state = {
       while (state.opusDecodeQueue.length > 0 && state.opusDecoderReady) {
         const buffer = state.opusDecodeQueue.shift();
         decodeOpus(buffer);
-      }
-    }
-
-    function playAudioData(audioData) {
-      if (!state.audioContextListen) {
-        audioData.close();
-        return;
-      }
-      try {
-        const sampleRate = audioData.sampleRate;
-        const frameCount = audioData.numberOfFrames;
-        const numberOfChannels = audioData.numberOfChannels;
-        console.log(`AudioData: ${frameCount} frames, ${numberOfChannels} ch, ${sampleRate}Hz`);
-        const audioBuffer = state.audioContextListen.createBuffer(
-          numberOfChannels,
-          frameCount,
-          sampleRate
-        );
-        for (let ch = 0; ch < numberOfChannels; ch++) {
-          const channelData = audioBuffer.getChannelData(ch);
-          console.log(`Channel ${ch}: copyTo into ${channelData.length} samples`);
-          audioData.copyTo(channelData, { planeIndex: ch });
-        }
-        const source = state.audioContextListen.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(state.audioContextListen.destination);
-        const startAt = Math.max(state.nextStartTime, state.audioContextListen.currentTime);
-        source.start(startAt);
-        state.nextStartTime = startAt + audioBuffer.duration;
-      } catch (error) {
-        console.error('Play audio error:', error);
-      } finally {
-        audioData.close();
       }
     }
 
