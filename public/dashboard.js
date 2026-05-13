@@ -356,23 +356,23 @@ const state = {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         state.audioContextTransmit = new AudioContext({ sampleRate: SAMPLE_RATE });
+
+        await state.audioContextTransmit.audioWorklet.addModule('/audio-worklet.js');
+
         const source = state.audioContextTransmit.createMediaStreamSource(stream);
-        state.processor = state.audioContextTransmit.createScriptProcessor(2048, 1, 1);
+        state.processor = new AudioWorkletNode(state.audioContextTransmit, 'microphone-processor');
+
+        state.processor.port.onmessage = (event) => {
+          if (!state.isStreaming || state.socket?.readyState !== WebSocket.OPEN) return;
+          const { type, rms, data } = event.data;
+          if (type === 'audio' && data) {
+            state.socket.send(data);
+            updateVisualizer(rms);
+          }
+        };
+
         source.connect(state.processor);
         state.processor.connect(state.audioContextTransmit.destination);
-        state.processor.onaudioprocess = (event) => {
-          if (!state.isStreaming || state.socket?.readyState !== WebSocket.OPEN) return;
-          const input = event.inputBuffer.getChannelData(0);
-          let sum = 0;
-          for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
-          const rms = Math.sqrt(sum / input.length);
-          if (rms < NOISE_GATE_THRESHOLD && state.noiseGateHold <= 0) return;
-          state.noiseGateHold = rms >= NOISE_GATE_THRESHOLD ? NOISE_GATE_HOLD_FRAMES : state.noiseGateHold - 1;
-          const pcm = new Int16Array(input.length);
-          for (let i = 0; i < input.length; i++) pcm[i] = Math.max(-1, Math.min(1, input[i])) * 32767;
-          state.socket.send(pcm.buffer);
-          updateVisualizer(rms);
-        };
         state.isStreaming = true;
         el.toggleBtn.textContent = 'Stop Transmitting';
       } catch (error) {
@@ -395,84 +395,13 @@ const state = {
       if (state.isListening) {
         state.audioContextListen = new AudioContext({ sampleRate: 24000 });
         state.nextStartTime = state.audioContextListen.currentTime;
-        initOpusDecoder();
         el.listenBtn.textContent = 'Leave Listen Channel';
         el.listenStatus.textContent = 'speaker on';
       } else {
         state.audioContextListen?.close();
         state.audioContextListen = null;
-        if (state.opusDecoder) {
-          state.opusDecoder.close();
-        }
-        state.opusDecoder = null;
-        state.opusDecoderReady = false;
-        state.opusDecodeQueue = [];
         el.listenBtn.textContent = 'Join Listen Channel';
         el.listenStatus.textContent = 'speaker off';
-      }
-    }
-
-    async function initOpusDecoder() {
-      if (!window.AudioDecoder) {
-        showError('WebCodecs AudioDecoder not supported in this browser');
-        state.isListening = false;
-        el.listenBtn.textContent = 'Join Listen Channel';
-        el.listenStatus.textContent = 'speaker off';
-        return;
-      }
-      try {
-        state.opusDecoder = new AudioDecoder({
-          output: (audioData) => playAudioDataDirect(audioData),
-          error: (error) => {
-            console.error('Opus decode error:', error);
-            showError(`Opus decode error: ${error.message}`);
-          },
-        });
-        state.opusDecoder.configure({
-          codec: 'opus',
-          sampleRate: 48000,
-          numberOfChannels: 2,
-        });
-        state.opusDecoderReady = true;
-        processOpusQueue();
-      } catch (error) {
-        showError(`Failed to init Opus decoder: ${error.message}`);
-        state.isListening = false;
-        el.listenBtn.textContent = 'Join Listen Channel';
-        el.listenStatus.textContent = 'speaker off';
-      }
-    }
-
-    function playAudioDataDirect(audioData) {
-      if (!state.audioContextListen || !state.isListening) {
-        audioData.close();
-        return;
-      }
-      try {
-        const sampleRate = audioData.sampleRate;
-        const frameCount = audioData.numberOfFrames;
-        const numberOfChannels = audioData.numberOfChannels;
-        const audioBuffer = state.audioContextListen.createBuffer(
-          numberOfChannels,
-          frameCount,
-          sampleRate
-        );
-        for (let ch = 0; ch < numberOfChannels; ch++) {
-          const channelData = audioBuffer.getChannelData(ch);
-          const tempArray = new Float32Array(frameCount);
-          audioData.copyTo(tempArray, { planeIndex: ch });
-          channelData.set(tempArray);
-        }
-        const source = state.audioContextListen.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(state.audioContextListen.destination);
-        const startAt = Math.max(state.nextStartTime, state.audioContextListen.currentTime);
-        source.start(startAt);
-        state.nextStartTime = startAt + audioBuffer.duration;
-      } catch (error) {
-        console.error('Play audio error:', error);
-      } finally {
-        audioData.close();
       }
     }
 
