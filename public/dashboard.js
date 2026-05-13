@@ -7,12 +7,10 @@ const state = {
   text: bootstrapData.messages || [],
   isStreaming: false,
   isListening: false,
-  mic: null,
-  analyser: null,
-  meter: null,
-  synth: null,
-  nextStartTime: 0,
+  audioContextTransmit: null,
   audioContextListen: null,
+  processor: null,
+  nextStartTime: 0,
   userTimelines: new Map(),
 };
 
@@ -356,50 +354,51 @@ function appendEmpty(parent, message) {
 
 async function startStreaming() {
   try {
-    await Tone.start();
-    state.mic = new Tone.UserMedia();
-    state.analyser = new Tone.Analyser('waveform');
-    state.meter = new Tone.Meter();
-
-    state.mic.connect(state.analyser);
-    state.mic.connect(state.meter);
-
-    await state.mic.open();
-
-    const analyzeInterval = setInterval(() => {
-      if (!state.isStreaming) {
-        clearInterval(analyzeInterval);
-        return;
-      }
-
-      const level = state.meter.getValue();
-      updateVisualizer(Math.max(0, level + 100) / 100);
-
-      const waveform = state.analyser.getValue();
-      if (waveform && state.socket?.readyState === WebSocket.OPEN) {
-        const pcm = new Int16Array(waveform.length);
-        for (let i = 0; i < waveform.length; i++) {
-          pcm[i] = Math.max(-1, Math.min(1, waveform[i])) * 32767;
-        }
-        state.socket.send(pcm.buffer);
-      }
-    }, 50);
-
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     state.isStreaming = true;
     el.toggleBtn.textContent = 'Stop Transmitting';
-  } catch (error) {
-    showError(`Microphone error: ${error.message}`);
+
+    state.audioContextTransmit = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+    const source = state.audioContextTransmit.createMediaStreamSource(stream);
+
+    const analyser = state.audioContextTransmit.createAnalyser();
+    analyser.fftSize = 64;
+    source.connect(analyser);
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    state.processor = state.audioContextTransmit.createScriptProcessor(4096, 1, 1);
+    source.connect(state.processor);
+    state.processor.connect(state.audioContextTransmit.destination);
+
+    state.processor.onaudioprocess = (e) => {
+      if (!state.isStreaming || state.socket?.readyState !== WebSocket.OPEN) return;
+
+      const inputData = e.inputBuffer.getChannelData(0);
+      const pcmData = new Int16Array(inputData.length);
+      for (let i = 0; i < inputData.length; i++) {
+        pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767;
+      }
+      state.socket.send(pcmData.buffer);
+
+      analyser.getByteFrequencyData(dataArray);
+      bars.forEach((bar, index) => {
+        const percent = (dataArray[index] / 255) * 100;
+        bar.style.height = `${Math.max(2, percent)}%`;
+      });
+    };
+  } catch (err) {
+    showError(`Microphone access denied: ${err.message}`);
   }
 }
 
 function stopStreaming() {
   state.isStreaming = false;
-  state.mic?.close();
-  state.mic = null;
-  state.analyser = null;
-  state.meter = null;
+  if (state.processor) state.processor.disconnect();
+  if (state.audioContextTransmit) state.audioContextTransmit.close();
+  state.processor = null;
+  state.audioContextTransmit = null;
   el.toggleBtn.textContent = 'Start Transmitting';
-  updateVisualizer(0);
+  bars.forEach(bar => bar.style.height = '2px');
 }
 
 function toggleListen() {
