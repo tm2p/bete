@@ -7,6 +7,10 @@ import { config } from "./config";
 import { discordPlayer } from "./player";
 import { startRecording } from "./recorder";
 import { startWebserver } from "./webserver";
+import { createChildLogger } from "./logger";
+import { retryWithBackoff } from "./retry";
+
+const logger = createChildLogger("bot");
 
 // Validasi environment variables
 const token = process.env.DISCORD_TOKEN;
@@ -17,18 +21,18 @@ if (!token) throw new Error("Missing DISCORD_TOKEN in .env");
 if (!voiceChannelId) throw new Error("Missing VOICE_CHANNEL_ID in .env");
 if (!guildId) throw new Error("Missing GUILD_ID in .env");
 
-// Inisialisasi selfbot client (gunakan checkUpdate: false supaya tidak ada prompt update)
+// Inisialisasi selfbot client
 const client = new Client();
 
 client.on("ready", async () => {
   if (config.verbose) {
-    console.log(`[bot] Logged in as ${client.user!.tag}`);
+    logger.info({ user: client.user?.tag }, "Bot logged in");
   }
 
   // Ambil guild
   const guild = client.guilds.cache.get(guildId!);
   if (!guild) {
-    console.error(`[bot] Guild not found: ${guildId}`);
+    logger.error({ guildId }, "Guild not found");
     process.exit(1);
   }
 
@@ -38,24 +42,24 @@ client.on("ready", async () => {
     (await guild.channels.fetch(voiceChannelId!).catch(() => null));
 
   if (!channel || channel.type !== "GUILD_VOICE") {
-    console.error(
-      `[bot] Voice channel not found or wrong type: ${voiceChannelId}`,
-    );
+    logger.error({ voiceChannelId }, "Voice channel not found or wrong type");
     process.exit(1);
   }
 
   if (config.verbose) {
-    console.log(
-      `[bot] Joining voice channel: #${channel.name} (${channel.id})`,
+    logger.info(
+      { channelName: channel.name, channelId: channel.id },
+      "Joining voice channel",
     );
   }
+
   await startRecording(client, channel as any);
 
   // Set up player connection
   const connection = getVoiceConnection(guildId!);
   if (connection) {
     discordPlayer.setConnection(connection);
-    console.log("[bot] Player connected to voice channel");
+    logger.info("Player connected to voice channel");
   }
 
   // Start Webserver
@@ -63,13 +67,13 @@ client.on("ready", async () => {
 });
 
 client.on("error", (err) => {
-  console.error("[bot] Client error:", err);
+  logger.error({ error: err }, "Client error");
 });
 
 // Graceful shutdown
 process.on("SIGINT", () => {
   if (config.verbose) {
-    console.log("\n[bot] Shutting down...");
+    logger.info("Shutting down gracefully...");
   }
   client.destroy();
   process.exit(0);
@@ -77,7 +81,7 @@ process.on("SIGINT", () => {
 
 process.on("SIGTERM", () => {
   if (config.verbose) {
-    console.log("[bot] Terminating...");
+    logger.info("Terminating...");
   }
   client.destroy();
   process.exit(0);

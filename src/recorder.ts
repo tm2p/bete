@@ -8,7 +8,6 @@ import {
   VoiceConnectionStatus,
 } from "@discordjs/voice";
 import type { Client, VoiceChannel } from "discord.js-selfbot-v13";
-import prism from "prism-media";
 import { config } from "./config";
 import { PacketFilter } from "./packetFilter";
 import { subscribeToAudioStream } from "./recorder/audioStream";
@@ -19,6 +18,10 @@ import {
 } from "./recorder/metadata";
 import { SegmentManager } from "./recorder/segment";
 import type { PcmBroadcaster } from "./types";
+import { createChildLogger } from "./logger";
+import { retryWithBackoff } from "./retry";
+
+const logger = createChildLogger("recorder");
 
 const recordingsDir = config.recordingsDir;
 
@@ -43,32 +46,37 @@ export async function startRecording(
     debug: true,
   });
 
-  if (config.verbose) {
-    console.log(`[recorder] Joining voice channel: #${channel.name}`);
-  }
+  logger.info({ channelName: channel.name }, "Joining voice channel");
 
   connection.on("debug", (msg) => {
     if (config.verbose) {
-      console.log(`[voice-debug] ${msg}`);
+      logger.debug({ message: msg }, "Voice debug");
     }
   });
 
   connection.on("error", (err) => {
-    console.error(`[voice-error]`, err);
+    logger.error({ error: err }, "Voice connection error");
   });
 
-  // Tunggu sampai benar-benar terhubung
+  // Tunggu sampai benar-benar terhubung dengan retry logic
   try {
-    await entersState(
-      connection,
-      VoiceConnectionStatus.Ready,
-      config.voiceConnectionTimeoutMs,
+    await retryWithBackoff(
+      () =>
+        entersState(
+          connection,
+          VoiceConnectionStatus.Ready,
+          config.voiceConnectionTimeoutMs,
+        ),
+      {
+        retries: 3,
+        minTimeout: 1000,
+        maxTimeout: 5000,
+        logger,
+      },
     );
-    if (config.verbose) {
-      console.log("[recorder] Connected to voice channel. Recording started.");
-    }
+    logger.info("Connected to voice channel. Recording started");
   } catch (err) {
-    console.error("[recorder] Failed to connect:", err);
+    logger.error({ error: err }, "Failed to connect to voice channel");
     connection.destroy();
     return;
   }
@@ -79,7 +87,7 @@ export async function startRecording(
   // Dengarkan siapapun yang mulai bicara
   receiver.speaking.on("start", async (userId) => {
     const userMetadata = await collectUserMetadata(client, userId, channel);
-    console.log(`${userMetadata.username} [voice activity]`);
+    logger.info({ userId, username: userMetadata.username }, "Voice activity detected");
 
     // Notify webserver
     broadcaster.updateActiveUser?.(userId, {
@@ -132,7 +140,7 @@ export async function startRecording(
       let currentSegment = segmentManager.open(oggPacketStream);
       currentSegment.out.on("finish", () => {
         if (config.verbose) {
-          console.log(`[recorder] Saved: ${currentSegment.filename}`);
+          logger.info({ filename: currentSegment.filename }, "Segment saved");
         }
         const metadata = createSegmentMetadata(
           userMetadata,
@@ -146,14 +154,18 @@ export async function startRecording(
           JSON.stringify(metadata, null, 2),
         );
         if (config.verbose) {
-          console.log(
-            `[recorder] Saved metadata: ${currentSegment.jsonFilename}`,
+          logger.info(
+            { jsonFile: currentSegment.jsonFilename },
+            "Metadata saved",
           );
         }
       });
 
       currentSegment.out.on("error", (err) => {
-        console.error(`[recorder] File write error ${userId}:`, err.message);
+        logger.error(
+          { userId, error: err.message },
+          "File write error",
+        );
       });
 
       // Feed Opus packets one-by-one
@@ -166,7 +178,7 @@ export async function startRecording(
           decoder.write(chunk);
         },
         onEnd: () => {
-          const segment = segmentManager.close(oggPacketStream);
+          segmentManager.close(oggPacketStream);
           decoder.destroy();
           broadcaster.updateActiveUser?.(userId, {
             username: userMetadata.username,
@@ -177,31 +189,32 @@ export async function startRecording(
         onError: (error) => {
           segmentManager.close(oggPacketStream);
           decoder.destroy();
-          console.error(
-            `[recorder] Audio Stream error ${userId}:`,
-            error.message,
+          logger.error(
+            { userId, error: error.message },
+            "Audio stream error",
           );
         },
       });
 
       packetFilterForOgg.on("error", (err) => {
         segmentManager.close(oggPacketStream);
-        console.error(
-          `[recorder] PacketFilter(ogg) error ${userId}:`,
-          err.message,
+        logger.error(
+          { userId, error: err.message },
+          "PacketFilter error",
         );
       });
     } catch (e) {
-      console.error(`[recorder] Failed to create stream for ${userId}:`, e);
+      logger.error(
+        { userId, error: e instanceof Error ? e.message : String(e) },
+        "Failed to create stream",
+      );
     }
   });
 
   // Handle disconnect yang tidak disengaja
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
     if (config.verbose) {
-      console.warn(
-        "[recorder] Disconnected from voice channel. Reconnecting...",
-      );
+      logger.warn("Disconnected from voice channel. Reconnecting...");
     }
     try {
       await Promise.race([
@@ -218,14 +231,14 @@ export async function startRecording(
       ]);
       // Berhasil reconnect
     } catch {
-      console.error("[recorder] Could not reconnect. Destroying connection.");
+      logger.error("Could not reconnect. Destroying connection");
       connection.destroy();
     }
   });
 
   connection.on(VoiceConnectionStatus.Destroyed, () => {
     if (config.verbose) {
-      console.log("[recorder] Voice connection destroyed.");
+      logger.info("Voice connection destroyed");
     }
   });
 }
@@ -238,9 +251,9 @@ export function stopRecording(guildId: string): void {
   if (connection) {
     connection.destroy();
     if (config.verbose) {
-      console.log("[recorder] Recording stopped and disconnected.");
+      logger.info("Recording stopped and disconnected");
     }
   } else {
-    console.warn("[recorder] No active connection to stop.");
+    logger.warn("No active connection to stop");
   }
 }

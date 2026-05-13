@@ -4,6 +4,9 @@ import path from "path";
 import prism from "prism-media";
 import { WebSocketServer } from "ws";
 import { discordPlayer } from "./player";
+import { createChildLogger } from "./logger";
+
+const logger = createChildLogger("webserver");
 
 const activeUsers = new Map<
   string,
@@ -42,9 +45,7 @@ export function startWebserver(port: number = 3000) {
 
   const wsPort = port + 1;
   const wss = new WebSocketServer({ port: wsPort, host: "0.0.0.0" });
-  console.log(
-    `[webserver] WebSocket server listening on ws://0.0.0.0:${wsPort}`,
-  );
+  logger.info({ wsPort }, "WebSocket server listening");
 
   app.use(express.static(path.join(__dirname, "../public")));
 
@@ -124,8 +125,9 @@ export function startWebserver(port: number = 3000) {
   setInterval(() => {
     if (dbCount > 0) {
       const avg = dbAccum / dbCount;
-      console.log(
-        `[transmit] Audio level: ${avg.toFixed(1)} dBFS (${dbCount} frames/2s)`,
+      logger.info(
+        { level: avg.toFixed(1), frames: dbCount },
+        "Audio level",
       );
       dbAccum = 0;
       dbCount = 0;
@@ -140,8 +142,8 @@ export function startWebserver(port: number = 3000) {
 
     if (pcmBuffer.length >= BYTES_PER_FRAME) {
       // Real audio available
-      frame = pcmBuffer.slice(0, BYTES_PER_FRAME);
-      pcmBuffer = pcmBuffer.slice(BYTES_PER_FRAME);
+      frame = pcmBuffer.subarray(0, BYTES_PER_FRAME);
+      pcmBuffer = pcmBuffer.subarray(BYTES_PER_FRAME);
 
       // Track level for logging
       dbAccum += rmsDb(frame);
@@ -150,7 +152,7 @@ export function startWebserver(port: number = 3000) {
       if (playerPaused) {
         discordPlayer.unpause();
         playerPaused = false;
-        console.log("[transmit] Transmitting — Discord indicator ON");
+        logger.info("Transmitting — Discord indicator ON");
       }
     } else if (msSinceAudio < SILENCE_TAIL_MS && msSinceAudio > 0) {
       // Buffer drained but audio was recent — pad silence to avoid OGG gap
@@ -159,7 +161,7 @@ export function startWebserver(port: number = 3000) {
       // No audio for a while — pause Discord indicator
       discordPlayer.pause();
       playerPaused = true;
-      console.log("[transmit] Stopped — Discord indicator OFF");
+      logger.info("Stopped — Discord indicator OFF");
       return;
     } else {
       return; // already paused, nothing to do
@@ -173,7 +175,7 @@ export function startWebserver(port: number = 3000) {
   }, 20);
 
   wss.on("connection", (ws) => {
-    console.log("[webserver] New WebSocket connection on port " + wsPort);
+    logger.info({ wsPort }, "New WebSocket connection");
     wsClients.add(ws);
 
     ws.send(
@@ -208,8 +210,6 @@ export function startWebserver(port: number = 3000) {
   });
 
   server.listen(port, "0.0.0.0", () => {
-    console.log(
-      `[webserver] Web interface listening on http://0.0.0.0:${port}`,
-    );
+    logger.info({ port }, "Web interface listening");
   });
 }
