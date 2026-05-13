@@ -33,7 +33,7 @@ export async function collectUserMetadata(
     avatarUrl:
       user?.displayAvatarURL({
         format: "png",
-        size: config.avatarSize as
+        size: config.AVATAR_SIZE as
           | 16
           | 32
           | 64

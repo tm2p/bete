@@ -15,7 +15,7 @@ export function subscribeToAudioStream(
   const audioStream = receiver.subscribe(userId, {
     end: {
       behavior: EndBehaviorType.AfterSilence,
-      duration: config.audioStreamSilenceDurationMs,
+      duration: config.AUDIO_STREAM_SILENCE_DURATION_MS,
     },
   });
 

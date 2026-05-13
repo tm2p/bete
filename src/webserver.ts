@@ -1,12 +1,14 @@
 import express from "express";
+import helmet from "helmet";
 import http from "http";
 import path from "path";
+import pinoHttp from "pino-http";
 import prism from "prism-media";
 import { WebSocketServer } from "ws";
+import { createChildLogger, logger } from "./logger";
 import { discordPlayer } from "./player";
-import { createChildLogger } from "./logger";
 
-const logger = createChildLogger("webserver");
+const wsLogger = createChildLogger("webserver");
 
 const activeUsers = new Map<
   string,
@@ -45,9 +47,26 @@ export function startWebserver(port: number = 3000) {
 
   const wsPort = port + 1;
   const wss = new WebSocketServer({ port: wsPort, host: "0.0.0.0" });
-  logger.info({ wsPort }, "WebSocket server listening");
+  wsLogger.info({ wsPort }, "WebSocket server listening");
+
+  // Security headers
+  app.use(helmet());
+
+  // HTTP request logging
+  app.use(pinoHttp({ logger }));
 
   app.use(express.static(path.join(__dirname, "../public")));
+
+  // Health check endpoint
+  app.get("/health", (_req, res) => {
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      activeUsers: activeUsers.size,
+      wsClients: wsClients.size,
+    });
+  });
 
   // Inbound: Discord PCM → tagged chunks → browser
   (global as any).broadcastPcmToWeb = (chunk: Buffer, userId: string) => {
@@ -125,10 +144,7 @@ export function startWebserver(port: number = 3000) {
   setInterval(() => {
     if (dbCount > 0) {
       const avg = dbAccum / dbCount;
-      logger.info(
-        { level: avg.toFixed(1), frames: dbCount },
-        "Audio level",
-      );
+      wsLogger.info({ level: avg.toFixed(1), frames: dbCount }, "Audio level");
       dbAccum = 0;
       dbCount = 0;
     }
@@ -152,7 +168,7 @@ export function startWebserver(port: number = 3000) {
       if (playerPaused) {
         discordPlayer.unpause();
         playerPaused = false;
-        logger.info("Transmitting — Discord indicator ON");
+        wsLogger.info("Transmitting — Discord indicator ON");
       }
     } else if (msSinceAudio < SILENCE_TAIL_MS && msSinceAudio > 0) {
       // Buffer drained but audio was recent — pad silence to avoid OGG gap
@@ -161,7 +177,7 @@ export function startWebserver(port: number = 3000) {
       // No audio for a while — pause Discord indicator
       discordPlayer.pause();
       playerPaused = true;
-      logger.info("Stopped — Discord indicator OFF");
+      wsLogger.info("Stopped — Discord indicator OFF");
       return;
     } else {
       return; // already paused, nothing to do
@@ -175,7 +191,7 @@ export function startWebserver(port: number = 3000) {
   }, 20);
 
   wss.on("connection", (ws) => {
-    logger.info({ wsPort }, "New WebSocket connection");
+    wsLogger.info({ wsPort }, "New WebSocket connection");
     wsClients.add(ws);
 
     ws.send(
@@ -210,6 +226,6 @@ export function startWebserver(port: number = 3000) {
   });
 
   server.listen(port, "0.0.0.0", () => {
-    logger.info({ port }, "Web interface listening");
+    wsLogger.info({ port }, "Web interface listening");
   });
 }

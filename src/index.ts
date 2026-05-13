@@ -1,24 +1,21 @@
 import "./mock-crc";
 import "libsodium-wrappers";
 import "@snazzah/davey";
+import "dotenv/config";
 import { getVoiceConnection } from "@discordjs/voice";
 import { Client } from "discord.js-selfbot-v13";
 import { config } from "./config";
+import { AppError } from "./errors";
+import { createChildLogger } from "./logger";
 import { discordPlayer } from "./player";
 import { startRecording, stopRecording } from "./recorder";
 import { startWebserver } from "./webserver";
-import { createChildLogger } from "./logger";
 
 const logger = createChildLogger("bot");
 
-// Validasi environment variables
-const token = process.env.DISCORD_TOKEN;
-const voiceChannelId = process.env.VOICE_CHANNEL_ID;
-const guildId = process.env.GUILD_ID;
-
-if (!token) throw new Error("Missing DISCORD_TOKEN in .env");
-if (!voiceChannelId) throw new Error("Missing VOICE_CHANNEL_ID in .env");
-if (!guildId) throw new Error("Missing GUILD_ID in .env");
+const token = config.DISCORD_TOKEN;
+const voiceChannelId = config.VOICE_CHANNEL_ID;
+const guildId = config.GUILD_ID;
 
 // Inisialisasi selfbot client
 const client = new Client();
@@ -76,7 +73,7 @@ async function gracefulShutdown(signal: string) {
 }
 
 client.on("ready", async () => {
-  if (config.verbose) {
+  if (config.VERBOSE) {
     logger.info({ user: client.user?.tag }, "Bot logged in");
   }
 
@@ -97,7 +94,7 @@ client.on("ready", async () => {
     process.exit(1);
   }
 
-  if (config.verbose) {
+  if (config.VERBOSE) {
     logger.info(
       { channelName: channel.name, channelId: channel.id },
       "Joining voice channel",
@@ -114,7 +111,7 @@ client.on("ready", async () => {
   }
 
   // Start Webserver
-  startWebserver(config.webserverPort);
+  startWebserver(config.WEBSERVER_PORT);
 });
 
 client.on("error", (err) => {

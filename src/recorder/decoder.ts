@@ -25,9 +25,14 @@ export class OpusDecoder {
       options.createDecoder ??
       (() =>
         new prism.opus.Decoder({
-          frameSize: config.opusFrameSize,
-          channels: config.audioChannels as 1 | 2,
-          rate: config.audioSampleRate as 8000 | 12000 | 16000 | 24000 | 48000,
+          frameSize: config.OPUS_FRAME_SIZE,
+          channels: config.AUDIO_CHANNELS as 1 | 2,
+          rate: config.AUDIO_SAMPLE_RATE as
+            | 8000
+            | 12000
+            | 16000
+            | 24000
+            | 48000,
         }));
   }
 

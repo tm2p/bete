@@ -9,6 +9,7 @@ import {
 } from "@discordjs/voice";
 import type { Client, VoiceChannel } from "discord.js-selfbot-v13";
 import { config } from "./config";
+import { createChildLogger } from "./logger";
 import { PacketFilter } from "./packetFilter";
 import { subscribeToAudioStream } from "./recorder/audioStream";
 import { OpusDecoder } from "./recorder/decoder";
@@ -17,13 +18,12 @@ import {
   createSegmentMetadata,
 } from "./recorder/metadata";
 import { SegmentManager } from "./recorder/segment";
-import type { PcmBroadcaster } from "./types";
-import { createChildLogger } from "./logger";
 import { retryWithBackoff } from "./retry";
+import type { PcmBroadcaster } from "./types";
 
 const logger = createChildLogger("recorder");
 
-const recordingsDir = config.recordingsDir;
+const recordingsDir = config.RECORDINGS_DIR;
 
 // Pastikan folder recordings ada
 if (!fs.existsSync(recordingsDir)) {
@@ -49,7 +49,7 @@ export async function startRecording(
   logger.info({ channelName: channel.name }, "Joining voice channel");
 
   connection.on("debug", (msg) => {
-    if (config.verbose) {
+    if (config.VERBOSE) {
       logger.debug({ message: msg }, "Voice debug");
     }
   });
@@ -65,7 +65,7 @@ export async function startRecording(
         entersState(
           connection,
           VoiceConnectionStatus.Ready,
-          config.voiceConnectionTimeoutMs,
+          config.VOICE_CONNECTION_TIMEOUT_MS,
         ),
       {
         retries: 3,
@@ -87,7 +87,10 @@ export async function startRecording(
   // Dengarkan siapapun yang mulai bicara
   receiver.speaking.on("start", async (userId) => {
     const userMetadata = await collectUserMetadata(client, userId, channel);
-    logger.info({ userId, username: userMetadata.username }, "Voice activity detected");
+    logger.info(
+      { userId, username: userMetadata.username },
+      "Voice activity detected",
+    );
 
     // Notify webserver
     broadcaster.updateActiveUser?.(userId, {
@@ -109,7 +112,9 @@ export async function startRecording(
 
     try {
       // --- OGG file recording with segment rotation ---
-      const packetFilterForOgg = new PacketFilter(config.packetFilterMinSize);
+      const packetFilterForOgg = new PacketFilter(
+        config.PACKET_FILTER_MIN_SIZE,
+      );
       const audioStream = receiver.subscribe(userId, {
         end: {
           behavior: EndBehaviorType.AfterSilence,
@@ -119,13 +124,13 @@ export async function startRecording(
       const oggPacketStream = audioStream.pipe(packetFilterForOgg);
       const segmentManager = new SegmentManager(
         userDir,
-        config.recordingSegmentMs,
+        config.RECORDING_SEGMENT_MS,
       );
 
       // --- Web broadcast: prism decoder with safe restart and cooldown ---
       const decoder = new OpusDecoder({
-        cooldownMs: config.decoderCooldownMs,
-        rotateMs: config.decoderRotateMs,
+        cooldownMs: config.DECODER_COOLDOWN_MS,
+        rotateMs: config.DECODER_ROTATE_MS,
         onData: (pcm) => {
           if (!broadcaster.broadcastPcmToWeb) return;
           // Downsample 48kHz stereo → 24kHz mono (left channel, every 2nd sample)
@@ -139,7 +144,7 @@ export async function startRecording(
 
       let currentSegment = segmentManager.open(oggPacketStream);
       currentSegment.out.on("finish", () => {
-        if (config.verbose) {
+        if (config.VERBOSE) {
           logger.info({ filename: currentSegment.filename }, "Segment saved");
         }
         const metadata = createSegmentMetadata(
@@ -147,13 +152,13 @@ export async function startRecording(
           currentSegment,
           sessionId,
           sessionStartTime,
-          config.recordingSegmentMs,
+          config.RECORDING_SEGMENT_MS,
         );
         fs.writeFileSync(
           currentSegment.jsonFilename,
           JSON.stringify(metadata, null, 2),
         );
-        if (config.verbose) {
+        if (config.VERBOSE) {
           logger.info(
             { jsonFile: currentSegment.jsonFilename },
             "Metadata saved",
@@ -162,10 +167,7 @@ export async function startRecording(
       });
 
       currentSegment.out.on("error", (err) => {
-        logger.error(
-          { userId, error: err.message },
-          "File write error",
-        );
+        logger.error({ userId, error: err.message }, "File write error");
       });
 
       // Feed Opus packets one-by-one
@@ -189,19 +191,13 @@ export async function startRecording(
         onError: (error) => {
           segmentManager.close(oggPacketStream);
           decoder.destroy();
-          logger.error(
-            { userId, error: error.message },
-            "Audio stream error",
-          );
+          logger.error({ userId, error: error.message }, "Audio stream error");
         },
       });
 
       packetFilterForOgg.on("error", (err) => {
         segmentManager.close(oggPacketStream);
-        logger.error(
-          { userId, error: err.message },
-          "PacketFilter error",
-        );
+        logger.error({ userId, error: err.message }, "PacketFilter error");
       });
     } catch (e) {
       logger.error(
@@ -213,7 +209,7 @@ export async function startRecording(
 
   // Handle disconnect yang tidak disengaja
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
-    if (config.verbose) {
+    if (config.VERBOSE) {
       logger.warn("Disconnected from voice channel. Reconnecting...");
     }
     try {
@@ -221,12 +217,12 @@ export async function startRecording(
         entersState(
           connection,
           VoiceConnectionStatus.Signalling,
-          config.reconnectTimeoutMs,
+          config.RECONNECT_TIMEOUT_MS,
         ),
         entersState(
           connection,
           VoiceConnectionStatus.Connecting,
-          config.reconnectTimeoutMs,
+          config.RECONNECT_TIMEOUT_MS,
         ),
       ]);
       // Berhasil reconnect
@@ -237,7 +233,7 @@ export async function startRecording(
   });
 
   connection.on(VoiceConnectionStatus.Destroyed, () => {
-    if (config.verbose) {
+    if (config.VERBOSE) {
       logger.info("Voice connection destroyed");
     }
   });
@@ -250,7 +246,7 @@ export function stopRecording(guildId: string): void {
   const connection = getVoiceConnection(guildId);
   if (connection) {
     connection.destroy();
-    if (config.verbose) {
+    if (config.VERBOSE) {
       logger.info("Recording stopped and disconnected");
     }
   } else {
