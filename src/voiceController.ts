@@ -73,12 +73,25 @@ export class VoiceController {
     const guild = this.getGuild(guildId);
     await guild.channels.fetch().catch(() => null);
 
-    return guild.channels.cache
-      .filter((channel) =>
-        ["GUILD_TEXT", "GUILD_PUBLIC_THREAD", "GUILD_PRIVATE_THREAD"].includes(
-          channel.type,
-        ),
-      )
+    const channels = [...guild.channels.cache.values()].filter((channel) =>
+      ["GUILD_TEXT", "GUILD_PUBLIC_THREAD", "GUILD_PRIVATE_THREAD"].includes(
+        channel.type,
+      ),
+    );
+
+    for (const channel of guild.channels.cache.values()) {
+      const threadParent = channel as typeof channel & {
+        threads?: { fetch: (options: { archived: boolean; limit: number }) => Promise<any> };
+      };
+      if (!threadParent.threads?.fetch) continue;
+      for (const archived of [false, true]) {
+        const fetched = await threadParent.threads.fetch({ archived, limit: 100 }).catch(() => null);
+        if (!fetched?.threads) continue;
+        channels.push(...fetched.threads.values());
+      }
+    }
+
+    return Array.from(new Map(channels.map((channel) => [channel.id, channel])).values())
       .map((channel) => {
         const parentName = channel.isThread?.() ? channel.parent?.name : null;
         return {

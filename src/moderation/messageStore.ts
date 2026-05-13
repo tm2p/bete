@@ -7,7 +7,7 @@ const logger = createChildLogger("message-store");
 export function insertMessage(db: SqliteDatabase, message: MessageRecord): void {
   try {
     const stmt = db.prepare(`
-      INSERT INTO messages (
+      INSERT OR IGNORE INTO messages (
         id, guild_id, channel_id, thread_id, user_id, username, avatar_url,
         content, edited_content, created_at, edited_at, deleted_at, type, metadata
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -115,7 +115,7 @@ export function getMessagesByChannel(
 export function insertAttachment(db: SqliteDatabase, attachment: AttachmentRecord): void {
   try {
     const stmt = db.prepare(`
-      INSERT INTO attachments (
+      INSERT OR IGNORE INTO attachments (
         id, message_id, guild_id, channel_id, thread_id, user_id, filename, size, type,
         discord_url, uploaded_url, upload_status, upload_error, created_at, uploaded_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

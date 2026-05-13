@@ -1,64 +1,21 @@
-import type { Client, Message, TextChannel, ThreadChannel } from "discord.js-selfbot-v13";
+import type { Client, Message } from "discord.js-selfbot-v13";
 import { createChildLogger } from "../logger";
 import type { SqliteDatabase } from "../muxer-queue";
 import { config } from "../config";
 import { insertMessage, insertAttachment } from "./messageStore";
 import { processAttachmentUpload } from "./attachmentUploader";
+import { getDisplayContent, getMessageLocation, getMessageMetadata } from "./messageMetadata";
 import type { MessageRecord, AttachmentRecord } from "./types";
 
 const logger = createChildLogger("message-capture");
 
-function getMessageLocation(message: Message): {
-  channelId: string;
-  threadId: string | null;
-  threadName: string | null;
-} {
-  const channel = message.channel as TextChannel | ThreadChannel;
-  if (!channel.isThread?.()) {
-    return { channelId: message.channelId, threadId: null, threadName: null };
-  }
-
-  return {
-    channelId: channel.parentId ?? message.channelId,
-    threadId: channel.id,
-    threadName: channel.name,
-  };
-}
-
-function getStickerMetadata(message: Message): Array<{
-  id: string;
-  name: string;
-  url: string;
-}> {
-  return Array.from(message.stickers.values()).map((sticker) => ({
-    id: sticker.id,
-    name: sticker.name,
-    url: sticker.url,
-  }));
-}
-
-function getDisplayContent(message: Message): string {
-  if (message.content.trim().length > 0) return message.content;
-
-  const stickers = getStickerMetadata(message);
-  if (stickers.length > 0) {
-    return stickers.map((sticker) => `[Sticker: ${sticker.name}]`).join(" ");
-  }
-
-  return "";
-}
-
-async function captureMessage(
+export async function captureMessage(
   db: SqliteDatabase,
   message: Message,
   type: "text" | "edited" | "deleted",
 ): Promise<void> {
   const location = getMessageLocation(message);
-  const stickers = getStickerMetadata(message);
-  const metadata = {
-    stickers,
-    threadName: location.threadName,
-  };
+  const metadata = getMessageMetadata(message);
 
   const messageRecord: MessageRecord = {
     id: message.id,

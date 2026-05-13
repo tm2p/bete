@@ -9,6 +9,7 @@ import { discordPlayer } from "./player";
 import { VoiceController } from "./voiceController";
 import { startWebserver } from "./webserver";
 import { registerMessageCapture } from "./moderation/messageCapture";
+import { syncBacklogMessages } from "./moderation/backlogSync";
 import { getDatabase } from "./muxer-queue";
 
 const logger = createChildLogger("bot");
@@ -55,6 +56,9 @@ async function gracefulShutdown(signal: string) {
 client.on("ready", async () => {
   logger.info({ user: client.user?.tag }, "Bot logged in");
   registerMessageCapture(client, db);
+  syncBacklogMessages(client, db).catch((error) => {
+    logger.warn({ error }, "Backlog sync failed");
+  });
   startWebserver(config.WEBSERVER_PORT, client, voiceController);
 });
 

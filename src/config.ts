@@ -32,6 +32,8 @@ const configSchema = z.object({
   ATTACHMENT_UPLOAD_TIMEOUT_MS: z.coerce.number().positive().default(30000),
   ATTACHMENT_MAX_SIZE_MB: z.coerce.number().positive().default(100),
   ATTACHMENT_RETRY_ATTEMPTS: z.coerce.number().positive().default(3),
+  BACKLOG_SYNC_HOURS: z.coerce.number().positive().default(24),
+  BACKLOG_SYNC_BATCH_SIZE: z.coerce.number().int().positive().max(100).default(100),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

@@ -377,8 +377,13 @@
     .time { color: var(--faint); font: 600 11px/1 "JetBrains Mono", monospace; white-space: nowrap; }
     .message-text { color: #dbe6f7; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 
-    .sticker-strip { display: flex; gap: 10px; flex-wrap: wrap; }
+    .sticker-strip, .attachment-strip { display: flex; gap: 10px; flex-wrap: wrap; }
     .sticker-img { width: 96px; height: 96px; object-fit: contain; border-radius: 16px; background: rgba(0,0,0,0.22); border: 1px solid var(--line); padding: 8px; }
+    .attachment-chip { color: var(--cyan); text-decoration: none; border: 1px solid var(--line); border-radius: 14px; padding: 8px 10px; font: 700 12px/1 "JetBrains Mono", monospace; background: rgba(0,229,255,0.06); }
+    .embed-card { border-left: 4px solid var(--blue); border-radius: 16px; padding: 12px; background: rgba(98,117,255,0.08); display: grid; gap: 8px; }
+    .embed-title { font-weight: 900; color: var(--text); }
+    .embed-description { color: var(--muted); line-height: 1.5; white-space: pre-wrap; }
+    .embed-image { max-width: 360px; width: 100%; border-radius: 14px; border: 1px solid var(--line); }
 
     .badges { display: flex; gap: 8px; flex-wrap: wrap; }
     .badge {
@@ -770,25 +775,91 @@
         const text = document.createElement('div');
         text.className = 'message-text';
         text.textContent = msg.edited_content || msg.content || '(empty message)';
-        const stickers = document.createElement('div');
-        stickers.className = 'sticker-strip';
-        for (const sticker of metadata.stickers || []) {
-          const img = document.createElement('img');
-          img.className = 'sticker-img';
-          img.src = sticker.url;
-          img.alt = sticker.name;
-          stickers.appendChild(img);
-        }
+        const stickers = renderStickers(metadata.stickers || []);
+        const embeds = renderEmbeds(metadata.embeds || []);
+        const attachments = renderAttachments(metadata.attachments || []);
         const badges = document.createElement('div');
         badges.className = 'badges';
-        if (msg.thread_id) appendBadge(badges, metadata.threadName ? `thread: ${metadata.threadName}` : 'thread', '');
+        if (metadata.reference?.messageId) appendBadge(badges, 'reply', '');
+        if (msg.thread_id) appendBadge(badges, metadata.channel?.threadName ? `thread: ${metadata.channel.threadName}` : 'thread', '');
         if (msg.edited_at) appendBadge(badges, 'edited', 'edit');
         if (msg.deleted_at) appendBadge(badges, 'deleted', 'delete');
         card.append(head, text);
         if (stickers.childElementCount > 0) card.appendChild(stickers);
+        if (embeds.childElementCount > 0) card.appendChild(embeds);
+        if (attachments.childElementCount > 0) card.appendChild(attachments);
         card.appendChild(badges);
         el.textList.appendChild(card);
       }
+    }
+
+    function renderStickers(stickers) {
+      const wrap = document.createElement('div');
+      wrap.className = 'sticker-strip';
+      for (const sticker of stickers) {
+        const img = document.createElement('img');
+        img.className = 'sticker-img';
+        img.src = sticker.url;
+        img.alt = sticker.name;
+        wrap.appendChild(img);
+      }
+      return wrap;
+    }
+
+    function renderEmbeds(embeds) {
+      const wrap = document.createElement('div');
+      wrap.className = 'feed';
+      for (const embed of embeds) {
+        const card = document.createElement('div');
+        card.className = 'embed-card';
+        if (embed.title) {
+          const title = document.createElement(embed.url ? 'a' : 'div');
+          title.className = 'embed-title';
+          title.textContent = embed.title;
+          if (embed.url) {
+            title.href = embed.url;
+            title.target = '_blank';
+            title.rel = 'noreferrer';
+          }
+          card.appendChild(title);
+        }
+        if (embed.description) {
+          const desc = document.createElement('div');
+          desc.className = 'embed-description';
+          desc.textContent = embed.description;
+          card.appendChild(desc);
+        }
+        for (const field of embed.fields || []) {
+          const fieldNode = document.createElement('div');
+          fieldNode.className = 'embed-description';
+          fieldNode.textContent = `${field.name}: ${field.value}`;
+          card.appendChild(fieldNode);
+        }
+        if (embed.image || embed.thumbnail) {
+          const img = document.createElement('img');
+          img.className = 'embed-image';
+          img.src = embed.image || embed.thumbnail;
+          img.alt = embed.title || 'embed image';
+          card.appendChild(img);
+        }
+        wrap.appendChild(card);
+      }
+      return wrap;
+    }
+
+    function renderAttachments(attachments) {
+      const wrap = document.createElement('div');
+      wrap.className = 'attachment-strip';
+      for (const attachment of attachments) {
+        const link = document.createElement('a');
+        link.className = 'attachment-chip';
+        link.href = attachment.url;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.textContent = `${attachment.name} (${(attachment.size / 1024).toFixed(1)}KB)`;
+        wrap.appendChild(link);
+      }
+      return wrap;
     }
 
     function renderImages() {
