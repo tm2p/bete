@@ -11,9 +11,6 @@ const state = {
       processor: null,
       nextStartTime: 0,
       noiseGateHold: 0,
-      opusDecoder: null,
-      opusDecoderReady: false,
-      opusDecodeQueue: [],
     };
 
     const SAMPLE_RATE = 24000;
@@ -165,19 +162,7 @@ const state = {
           handleJsonEvent(event.data);
           return;
         }
-        if (!state.isListening) return;
-        const bytes = new Uint8Array(event.data);
-        if (bytes.byteLength < 5) {
-          playPcm(event.data);
-          return;
-        }
-        const mode = bytes[0];
-        if (mode === 1) {
-          const opusData = bytes.slice(5);
-          decodeOpus(opusData);
-        } else {
-          playPcm(event.data);
-        }
+        if (state.isListening) playPcm(event.data);
       };
     }
 

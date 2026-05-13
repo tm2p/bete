@@ -238,22 +238,6 @@ export function startWebserver(
     });
   };
 
-  // Inbound: Discord Opus → tagged chunks → browser (WebCodecs decode)
-  (global as any).broadcastOpusToWeb = (chunk: Buffer, userId: string) => {
-    let hash = 0;
-    for (let i = 0; i < userId.length; i++) {
-      hash = (hash << 5) - hash + userId.charCodeAt(i);
-      hash |= 0;
-    }
-    const header = Buffer.alloc(5);
-    header.writeUInt8(1, 0); // mode: 1 = Opus
-    header.writeInt32LE(hash, 1);
-    const packet = Buffer.concat([header, chunk]);
-    wsClients.forEach((client) => {
-      if (client.readyState === 1) client.send(packet);
-    });
-  };
-
   (global as any).updateActiveUser = (
     userId: string,
     data: { username: string; avatar: string; speaking: boolean },
