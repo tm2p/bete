@@ -6,6 +6,7 @@ import pinoHttp from "pino-http";
 import prism from "prism-media";
 import { WebSocketServer } from "ws";
 import { createChildLogger, logger } from "./logger";
+import { getMetrics, uptimeGauge } from "./metrics";
 import { discordPlayer } from "./player";
 
 const wsLogger = createChildLogger("webserver");
@@ -66,6 +67,13 @@ export function startWebserver(port: number = 3000) {
       activeUsers: activeUsers.size,
       wsClients: wsClients.size,
     });
+  });
+
+  // Metrics endpoint
+  app.get("/metrics", async (_req, res) => {
+    res.set("Content-Type", "text/plain");
+    uptimeGauge.set(process.uptime());
+    res.send(await getMetrics());
   });
 
   // Inbound: Discord PCM → tagged chunks → browser

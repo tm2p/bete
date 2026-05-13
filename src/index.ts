@@ -5,7 +5,6 @@ import "dotenv/config";
 import { getVoiceConnection } from "@discordjs/voice";
 import { Client } from "discord.js-selfbot-v13";
 import { config } from "./config";
-import { AppError } from "./errors";
 import { createChildLogger } from "./logger";
 import { discordPlayer } from "./player";
 import { startRecording, stopRecording } from "./recorder";
