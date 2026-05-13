@@ -11,6 +11,7 @@ import { startWebserver } from "./webserver";
 import { registerMessageCapture } from "./moderation/messageCapture";
 import { syncBacklogMessages } from "./moderation/backlogSync";
 import { getDatabase } from "./muxer-queue";
+import { startPendingAIAnalysisWorker } from "./moderation/aiAnalyzer";
 
 const logger = createChildLogger("bot");
 
@@ -61,6 +62,7 @@ async function gracefulShutdown(signal: string) {
 client.on("ready", async () => {
   logger.info({ user: client.user?.tag }, "Bot logged in");
   registerMessageCapture(client, db);
+  startPendingAIAnalysisWorker(db);
   syncBacklogMessages(client, db).catch((error) => {
     logger.warn({ error }, "Backlog sync failed");
   });

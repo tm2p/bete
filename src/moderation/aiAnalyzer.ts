@@ -2,19 +2,12 @@ import { config } from "../config";
 import { createChildLogger } from "../logger";
 import type { SqliteDatabase } from "../muxer-queue";
 import { retryWithBackoff } from "../retry";
-import { getMessageById, updateMessageAIAnalysis } from "./messageStore";
+import { getMessageById, getPendingAIAnalysisMessages, updateMessageAIAnalysis } from "./messageStore";
 import type { MessageRecord } from "./types";
 
 const logger = createChildLogger("ai-analyzer");
 const queuedMessageIds = new Set<string>();
 let isProcessing = false;
-
-interface ModerationResult {
-  flagged: boolean;
-  flags: string[];
-  score: number;
-  raw: unknown;
-}
 
 interface ChatCompletionResponse {
   choices?: Array<{
@@ -22,6 +15,13 @@ interface ChatCompletionResponse {
       content?: string;
     };
   }>;
+}
+
+interface LLMAnalysis {
+  status: "clean" | "flagged";
+  flags: string[];
+  score: number;
+  analysis: string;
 }
 
 function getAnalysisText(message: MessageRecord): string {
@@ -47,39 +47,31 @@ async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
   }
 }
 
-async function runModeration(text: string): Promise<ModerationResult> {
-  const response = await retryWithBackoff(
-    () => fetchJson(`${config.OPENAI_MODERATION_BASE_URL}/moderations`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${config.OPENAI_MODERATION_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: config.OPENAI_MODERATION_MODEL,
-        input: text,
-      }),
-    }),
-    { retries: 2, logger },
-  ) as any;
-
-  const result = response.results?.[0] || {};
-  const categories = result.categories || {};
-  const categoryScores = result.category_scores || {};
-  const flags = Object.entries(categories)
-    .filter(([, flagged]) => Boolean(flagged))
-    .map(([name]) => name);
-  const score = Math.max(0, ...Object.values(categoryScores).map((value) => Number(value) || 0));
+function parseLLMAnalysis(content: string): LLMAnalysis {
+  const jsonStart = content.indexOf("{");
+  const jsonEnd = content.lastIndexOf("}");
+  if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    try {
+      const parsed = JSON.parse(content.slice(jsonStart, jsonEnd + 1));
+      const status = parsed.status === "flagged" ? "flagged" : "clean";
+      const flags = Array.isArray(parsed.flags) ? parsed.flags.map(String) : [];
+      const score = Math.max(0, Math.min(1, Number(parsed.score) || 0));
+      const analysis = typeof parsed.analysis === "string" ? parsed.analysis : content;
+      return { status, flags, score, analysis };
+    } catch {
+      // Fall through to text-only parsing.
+    }
+  }
 
   return {
-    flagged: Boolean(result.flagged) || flags.length > 0,
-    flags,
-    score,
-    raw: response,
+    status: /flagged|bahaya|berisiko|toxic|hate|harassment|violence|sexual|self-harm/i.test(content) ? "flagged" : "clean",
+    flags: [],
+    score: 0,
+    analysis: content.trim() || "Tidak ada analisis dari LLM.",
   };
 }
 
-async function runLLMAnalysis(text: string, moderation: ModerationResult): Promise<string> {
+async function runLLMAnalysis(text: string): Promise<{ result: LLMAnalysis; raw: unknown }> {
   const response = await retryWithBackoff(
     () => fetchJson(`${config.AI_LLM_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -92,16 +84,11 @@ async function runLLMAnalysis(text: string, moderation: ModerationResult): Promi
         messages: [
           {
             role: "system",
-            content: "Kamu analis moderation Discord. Jawab singkat dalam Bahasa Indonesia: ringkasan risiko, alasan, dan aksi yang disarankan. Jangan mengulang pesan mentah secara panjang.",
+            content: "Kamu analis moderation Discord. Nilai pesan untuk toxic, harassment, hate, violence, sexual, self-harm, spam, scam, atau unsafe content. Balas JSON valid saja dengan schema: {\"status\":\"clean|flagged\",\"flags\":[\"...\"],\"score\":0..1,\"analysis\":\"ringkasan singkat Bahasa Indonesia + alasan + aksi disarankan\"}.",
           },
           {
             role: "user",
-            content: JSON.stringify({
-              message: text,
-              moderationFlagged: moderation.flagged,
-              moderationFlags: moderation.flags,
-              moderationScore: moderation.score,
-            }),
+            content: text,
           },
         ],
         temperature: 0.2,
@@ -110,7 +97,8 @@ async function runLLMAnalysis(text: string, moderation: ModerationResult): Promi
     { retries: 2, logger },
   ) as ChatCompletionResponse;
 
-  return response.choices?.[0]?.message?.content?.trim() || "Tidak ada analisis dari LLM.";
+  const content = response.choices?.[0]?.message?.content?.trim() || "";
+  return { result: parseLLMAnalysis(content), raw: response };
 }
 
 async function analyzeAndStore(db: SqliteDatabase, message: MessageRecord): Promise<void> {
@@ -118,14 +106,13 @@ async function analyzeAndStore(db: SqliteDatabase, message: MessageRecord): Prom
   if (!config.AI_ANALYSIS_ENABLED || text.length === 0) return;
 
   try {
-    const moderation = await runModeration(text);
-    const analysis = await runLLMAnalysis(text, moderation);
+    const { result, raw } = await runLLMAnalysis(text);
     const row = updateMessageAIAnalysis(db, message.id, {
-      status: moderation.flagged ? "flagged" : "clean",
-      flags: JSON.stringify(moderation.flags),
-      score: moderation.score,
-      raw: JSON.stringify(moderation.raw),
-      analysis,
+      status: result.status,
+      flags: JSON.stringify(result.flags),
+      score: result.score,
+      raw: JSON.stringify(raw),
+      analysis: result.analysis,
       analyzedAt: Date.now(),
       error: null,
     });
@@ -150,7 +137,8 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
   isProcessing = true;
   try {
     while (queuedMessageIds.size > 0) {
-      const [messageId] = queuedMessageIds;
+      const messageId = queuedMessageIds.values().next().value as string | undefined;
+      if (!messageId) break;
       queuedMessageIds.delete(messageId);
       const message = getMessageById(db, messageId);
       if (message) await analyzeAndStore(db, message);
@@ -162,8 +150,28 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
 
 export function queueMessageAnalysis(db: SqliteDatabase, messageId: string): void {
   if (!config.AI_ANALYSIS_ENABLED) return;
+  logger.debug({ messageId }, "Queueing AI analysis");
   queuedMessageIds.add(messageId);
   setImmediate(() => {
     drainQueue(db).catch((error) => logger.error({ error }, "AI analysis queue failed"));
   });
+}
+
+export function startPendingAIAnalysisWorker(db: SqliteDatabase): void {
+  if (!config.AI_ANALYSIS_ENABLED) {
+    logger.info("AI analysis disabled");
+    return;
+  }
+
+  logger.info("AI analysis worker started");
+  setInterval(() => {
+    if (isProcessing) return;
+    const pendingMessages = getPendingAIAnalysisMessages(db, 3);
+    if (pendingMessages.length === 0) return;
+    logger.info({ count: pendingMessages.length }, "Queueing pending AI analysis messages");
+    for (const message of pendingMessages) {
+      queuedMessageIds.add(message.id);
+    }
+    drainQueue(db).catch((error) => logger.error({ error }, "Pending AI analysis worker failed"));
+  }, 15000);
 }

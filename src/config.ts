@@ -48,13 +48,6 @@ const configSchema = z.object({
   AI_ANALYSIS_TIMEOUT_MS: z.coerce.number().positive().default(30000),
 }).superRefine((value, ctx) => {
   if (!value.AI_ANALYSIS_ENABLED) return;
-  if (!value.OPENAI_MODERATION_API_KEY) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["OPENAI_MODERATION_API_KEY"],
-      message: "OPENAI_MODERATION_API_KEY is required when AI_ANALYSIS_ENABLED=true",
-    });
-  }
   if (!value.AI_LLM_API_KEY) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
