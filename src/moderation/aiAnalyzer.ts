@@ -8,6 +8,8 @@ import type { MessageRecord } from "./types";
 const logger = createChildLogger("ai-analyzer");
 const queuedMessageIds = new Set<string>();
 let isProcessing = false;
+let activeRequests = 0;
+const MAX_CONCURRENT_REQUESTS = 1;
 
 interface ChatCompletionResponse {
   choices?: Array<{
@@ -105,6 +107,7 @@ async function analyzeAndStore(db: SqliteDatabase, message: MessageRecord): Prom
   const text = getAnalysisText(message);
   if (!config.AI_ANALYSIS_ENABLED || text.length === 0) return;
 
+  activeRequests++;
   try {
     const { result, raw } = await runLLMAnalysis(text);
     const row = updateMessageAIAnalysis(db, message.id, {
@@ -129,6 +132,8 @@ async function analyzeAndStore(db: SqliteDatabase, message: MessageRecord): Prom
     });
     if (row) (globalThis as any).broadcastMessageAnalyzed?.(row);
     logger.warn({ messageId: message.id, error }, "AI analysis failed");
+  } finally {
+    activeRequests--;
   }
 }
 
@@ -137,6 +142,11 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
   isProcessing = true;
   try {
     while (queuedMessageIds.size > 0) {
+      // Wait if at max concurrent requests
+      while (activeRequests >= MAX_CONCURRENT_REQUESTS) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
       const messageId = queuedMessageIds.values().next().value as string | undefined;
       if (!messageId) break;
       queuedMessageIds.delete(messageId);
