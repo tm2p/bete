@@ -625,7 +625,21 @@
         apiRequest(`/api/guilds/${guildId}/channels`),
       ]);
       renderOptions(el.channelSelect, voiceChannels, 'Select voice channel');
-      renderOptions(el.channelFilter, watchChannels, 'Select channel or thread');
+      renderOptions(el.channelFilter, watchChannels, 'Select channel');
+      apiRequest(`/api/guilds/${guildId}/threads`)
+        .then((threads) => appendOptions(el.channelFilter, threads))
+        .catch((error) => showError(`Thread discovery failed: ${error.message}`));
+    }
+
+    function appendOptions(select, items) {
+      const existing = new Set([...select.options].map((option) => option.value));
+      for (const item of items) {
+        if (existing.has(item.id)) continue;
+        const option = document.createElement('option');
+        option.value = item.id;
+        option.textContent = item.name;
+        select.appendChild(option);
+      }
     }
 
     async function refreshStatus() {
