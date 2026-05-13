@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import prism from "prism-media";
+import * as prism from "prism-media";
 import type { SegmentState } from "../types";
 
 export function buildSegmentPaths(

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { Database } from "bun:sqlite";
+import Database from "better-sqlite3";
 import { createChildLogger } from "./logger";
 
 const logger = createChildLogger("muxer-queue");

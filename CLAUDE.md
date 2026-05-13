@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Discord Moderation Watcher Bot** — A comprehensive monitoring bot that captures voice, text messages, and images from Discord servers. Records audio from voice channels, captures all text messages (new/edited/deleted) from channels and threads, and uploads attachments to external storage. All data stored in SQLite with real-time dashboard.
 
-Built with **Bun** + **discord.js-selfbot-v13** + **@discordjs/voice** + **Express** + **WebSocket**.
+Built with **Node.js/pnpm** + **discord.js-selfbot-v13** + **@discordjs/voice** + **Express** + **WebSocket**.
 
 ## Architecture
 
@@ -73,28 +73,28 @@ attachments (SQLite):
 
 ```bash
 # Install dependencies
-bun install
+pnpm install
 
 # Development (auto-restart on file changes)
-bun run dev
+pnpm run dev
 
 # Production
-bun run start
+pnpm run start
 
 # Type checking
-bun run typecheck
+pnpm run typecheck
 
 # Linting (Biome)
-bun run lint
+pnpm run lint
 
 # Format code (Biome)
-bun run format
+pnpm run format
 
 # Run tests
-bun run test
+pnpm run test
 
 # Build TypeScript
-bun run build
+pnpm run build
 ```
 
 ## Configuration
@@ -136,7 +136,7 @@ All config via `.env` (see `.env.example`). Key variables:
 
 ## Testing
 
-Tests use **Vitest** in `tests/` directory. Run with `bun run test`.
+Tests use **Vitest** in `tests/` directory. Run with `pnpm run test`.
 
 **Test Coverage:**
 - `tests/moderation/messageStore.test.ts` — Message store CRUD operations
@@ -290,7 +290,7 @@ Handles SIGINT/SIGTERM/uncaughtException/unhandledRejection:
 ## Notes
 
 - Bot uses selfbot variant (user account) rather than standard bot token — check Discord ToS
-- Opus decoding disabled on Bun without native opus to avoid crashes
+- Opus decoding requires native `@discordjs/opus` under Node.js
 - OGG segments include metadata JSON for each segment (user info, timestamps, duration)
 - WebSocket broadcasts PCM in real-time; browser can transmit audio back to Discord
 - Graceful shutdown ensures clean disconnection and resource cleanup
@@ -327,7 +327,7 @@ Handles SIGINT/SIGTERM/uncaughtException/unhandledRejection:
 
 - **Recorder subsystem** (`src/recorder/`):
   - `audioStream.ts` — Subscribes to Discord audio receiver, emits Opus packets
-  - `decoder.ts` — Opus decoder with runtime checks (Bun vs Node), cooldown/rotation logic for web PCM broadcast
+  - `decoder.ts` — Opus decoder with runtime checks, cooldown/rotation logic for web PCM broadcast
   - `segment.ts` — Manages OGG file rotation (5s default segments per user)
   - `metadata.ts` — Collects user/role info, creates segment metadata JSON
 
@@ -363,28 +363,28 @@ Each segment is 5s (configurable). Metadata JSON includes user info, roles, time
 
 ```bash
 # Install dependencies
-bun install
+pnpm install
 
 # Development (auto-restart on file changes)
-bun run dev
+pnpm run dev
 
 # Production
-bun run start
+pnpm run start
 
 # Type checking
-bun run typecheck
+pnpm run typecheck
 
 # Linting (Biome)
-bun run lint
+pnpm run lint
 
 # Format code (Biome)
-bun run format
+pnpm run format
 
 # Run tests
-bun run test
+pnpm run test
 
 # Build TypeScript
-bun run build
+pnpm run build
 ```
 
 ## Configuration
@@ -404,9 +404,9 @@ All config via `.env` (see `.env.example`). Key variables:
 
 ## Testing
 
-Tests use **Vitest** in `tests/` directory. Run with `bun run test`.
+Tests use **Vitest** in `tests/` directory. Run with `pnpm run test`.
 
-Example: `tests/decoder.test.ts` tests Opus decoder runtime detection (Bun vs Node, native opus availability).
+Example: `tests/decoder.test.ts` tests Opus decoder runtime detection and native opus availability.
 
 ## Code Style
 
@@ -507,7 +507,7 @@ These will likely require:
 ## Notes
 
 - Bot uses selfbot variant (user account) rather than standard bot token — check Discord ToS
-- Opus decoding disabled on Bun without native opus to avoid crashes
+- Opus decoding requires native `@discordjs/opus` under Node.js
 - OGG segments include metadata JSON for each segment (user info, timestamps, duration)
 - WebSocket broadcasts PCM in real-time; browser can transmit audio back to Discord
 - Graceful shutdown ensures clean disconnection and resource cleanup

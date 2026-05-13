@@ -15,10 +15,15 @@ import { getDatabase } from "./muxer-queue";
 const logger = createChildLogger("bot");
 
 const token = config.DISCORD_TOKEN;
+logger.info({ hasToken: token.length > 0, tokenLength: token.length }, "Config loaded");
 
+logger.info("Creating Discord client");
 const client = new Client();
 const voiceController = new VoiceController(client);
+
+logger.info("Opening database");
 const db = getDatabase();
+logger.info("Database ready");
 
 let isShuttingDown = false;
 
@@ -84,5 +89,10 @@ process.on("unhandledRejection", (reason, promise) => {
   gracefulShutdown("unhandledRejection");
 });
 
-client.login(token);
+logger.info("Calling Discord client.login");
+client.login(token).then(() => {
+  logger.info("Discord client.login resolved");
+}).catch((error) => {
+  logger.error({ error }, "Discord client.login failed");
+});
 

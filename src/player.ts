@@ -6,7 +6,6 @@ import {
   StreamType,
   VoiceConnection,
 } from "@discordjs/voice";
-import prism from "prism-media";
 import { Readable } from "stream";
 
 export class DiscordPlayer {

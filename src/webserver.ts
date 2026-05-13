@@ -4,7 +4,7 @@ import helmet from "helmet";
 import http from "http";
 import path from "path";
 import pinoHttp from "pino-http";
-import prism from "prism-media";
+import * as prism from "prism-media";
 import { WebSocketServer } from "ws";
 import { AppError } from "./errors";
 import { createChildLogger, logger } from "./logger";
