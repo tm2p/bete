@@ -140,19 +140,37 @@ export async function syncBacklogMessages(
     "Watchable channels collected for backlog sync",
   );
 
-  for (const channel of channels) {
-    try {
-      const count = await syncChannelMessages(db, channel as any, cutoffTime);
-      total += count;
-      logger.info({ channelId: channel.id, count }, "Backlog channel sync completed");
-    } catch (error) {
-      logger.warn(
-        {
-          channelId: channel.id,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        "Backlog channel sync failed",
-      );
+  // Sync channels in parallel with concurrency limit of 3
+  const concurrency = 3;
+  const queue = [...channels];
+  const active: Promise<number>[] = [];
+
+  while (queue.length > 0 || active.length > 0) {
+    while (active.length < concurrency && queue.length > 0) {
+      const channel = queue.shift()!;
+      const promise = (async () => {
+        try {
+          const count = await syncChannelMessages(db, channel as any, cutoffTime);
+          logger.info({ channelId: channel.id, count }, "Backlog channel sync completed");
+          return count;
+        } catch (error) {
+          logger.warn(
+            {
+              channelId: channel.id,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "Backlog channel sync failed",
+          );
+          return 0;
+        }
+      })();
+      active.push(promise);
+    }
+
+    if (active.length > 0) {
+      const result = await Promise.race(active);
+      total += result;
+      active.splice(active.findIndex((p) => p === Promise.resolve(result)), 1);
     }
   }
 
