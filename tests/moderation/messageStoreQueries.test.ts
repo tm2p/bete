@@ -7,7 +7,6 @@ import {
   listReviewMessages,
 } from "../../src/moderation/messageStore";
 import { getDatabase, initializeDatabase, closeDatabase } from "../../src/database/drizzle";
-import { messagesTable } from "../../src/database/schema";
 import { createChildLogger } from "../../src/logger";
 import type { MessageRecord } from "../../src/moderation/types";
 
@@ -57,7 +56,7 @@ describe("message query integration tests", () => {
         )
       `);
     } catch (error) {
-      logger.debug("Messages table already exists or error creating it", { error });
+      logger.debug({ error }, "Messages table already exists or error creating it");
     }
   });
 
@@ -67,7 +66,7 @@ describe("message query integration tests", () => {
       const db = getDatabase() as any;
       await db.run(`DELETE FROM "messages"`);
     } catch (error) {
-      logger.debug("Could not clear messages table", { error });
+      logger.debug({ error }, "Could not clear messages table");
     }
   });
 
