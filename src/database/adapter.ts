@@ -1,7 +1,8 @@
+import path from "node:path";
+import Database from "better-sqlite3";
 import { createChildLogger } from "../logger";
 import { config } from "../config";
 import * as postgres from "./postgres";
-import * as sqliteModule from "../muxer-queue";
 
 const logger = createChildLogger("db-adapter");
 
@@ -107,9 +108,9 @@ class PostgresAdapter implements DatabaseAdapter {
  * SQLite adapter wrapping better-sqlite3
  */
 class SqliteAdapter implements DatabaseAdapter {
-  private db: sqliteModule.SqliteDatabase;
+  private db: Database.Database;
 
-  constructor(db: sqliteModule.SqliteDatabase) {
+  constructor(db: Database.Database) {
     this.db = db;
   }
 
@@ -127,8 +128,23 @@ class SqliteAdapter implements DatabaseAdapter {
   }
 
   async close(): Promise<void> {
-    await sqliteModule.closeQueue();
+    this.db.close();
   }
+}
+
+// SQLite database instance (lazy initialized)
+let sqliteDb: Database.Database | null = null;
+
+function initializeSqliteDatabase(): Database.Database {
+  const dbPath = path.join(process.cwd(), ".muxer-queue.db");
+  return new Database(dbPath);
+}
+
+function getSqliteDatabase(): Database.Database {
+  if (!sqliteDb) {
+    sqliteDb = initializeSqliteDatabase();
+  }
+  return sqliteDb;
 }
 
 /**
@@ -150,7 +166,7 @@ export async function getDatabase(): Promise<DatabaseAdapter> {
     return new PostgresAdapter();
   } else {
     logger.info("Initializing SQLite adapter");
-    const db = sqliteModule.getDatabase();
+    const db = getSqliteDatabase();
     logger.info("SQLite database initialized");
     return new SqliteAdapter(db);
   }
@@ -167,7 +183,7 @@ export function getDatabaseSync(): DatabaseAdapter {
     );
     return new PostgresAdapter();
   } else {
-    const db = sqliteModule.getDatabase();
+    const db = getSqliteDatabase();
     return new SqliteAdapter(db);
   }
 }

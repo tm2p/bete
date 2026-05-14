@@ -22,10 +22,6 @@ logger.info("Creating Discord client");
 const client = new Client();
 const voiceController = new VoiceController(client);
 
-logger.info("Opening database");
-const db = getDatabase();
-logger.info("Database ready");
-
 let isShuttingDown = false;
 
 async function gracefulShutdown(signal: string) {
@@ -59,42 +55,55 @@ async function gracefulShutdown(signal: string) {
   }
 }
 
-client.on("ready", async () => {
-  logger.info({ user: client.user?.tag }, "Bot logged in");
-  registerMessageCapture(client, db);
-  startPendingAIAnalysisWorker(db);
-  syncBacklogMessages(client, db).catch((error) => {
-    logger.warn({ error }, "Backlog sync failed");
+logger.info("Opening database");
+const dbPromise = getDatabase();
+let db: Awaited<typeof dbPromise>;
+
+async function initializeApp() {
+  db = await dbPromise;
+  logger.info("Database ready");
+
+  client.on("ready", async () => {
+    logger.info({ user: client.user?.tag }, "Bot logged in");
+    registerMessageCapture(client, db);
+    startPendingAIAnalysisWorker(db);
+    syncBacklogMessages(client, db).catch((error) => {
+      logger.warn({ error }, "Backlog sync failed");
+    });
+    await startWebserver(config.WEBSERVER_PORT, client, voiceController);
   });
-  startWebserver(config.WEBSERVER_PORT, client, voiceController);
-});
 
-client.on("error", (err) => {
-  logger.error({ error: err }, "Client error");
-});
+  client.on("error", (err) => {
+    logger.error({ error: err }, "Client error");
+  });
 
-process.on("SIGINT", () => {
-  gracefulShutdown("SIGINT");
-});
+  process.on("SIGINT", () => {
+    gracefulShutdown("SIGINT");
+  });
 
-process.on("SIGTERM", () => {
-  gracefulShutdown("SIGTERM");
-});
+  process.on("SIGTERM", () => {
+    gracefulShutdown("SIGTERM");
+  });
 
-process.on("uncaughtException", (err) => {
-  logger.error({ error: err }, "Uncaught exception");
-  gracefulShutdown("uncaughtException");
-});
+  process.on("uncaughtException", (err) => {
+    logger.error({ error: err }, "Uncaught exception");
+    gracefulShutdown("uncaughtException");
+  });
 
-process.on("unhandledRejection", (reason, promise) => {
-  logger.error({ reason, promise }, "Unhandled rejection");
-  gracefulShutdown("unhandledRejection");
-});
+  process.on("unhandledRejection", (reason, promise) => {
+    logger.error({ reason, promise }, "Unhandled rejection");
+    gracefulShutdown("unhandledRejection");
+  });
 
-logger.info("Calling Discord client.login");
-client.login(token).then(() => {
-  logger.info("Discord client.login resolved");
-}).catch((error) => {
-  logger.error({ error }, "Discord client.login failed");
-});
+  logger.info("Calling Discord client.login");
+  client.login(token).then(() => {
+    logger.info("Discord client.login resolved");
+  }).catch((error) => {
+    logger.error({ error }, "Discord client.login failed");
+  });
+}
 
+initializeApp().catch((error) => {
+  logger.error({ error }, "Failed to initialize app");
+  process.exit(1);
+});

@@ -40,7 +40,11 @@ const defaultSharedUIState: SharedUIState = {
   isStreaming: false,
 };
 
-const sharedUIState: SharedUIState = getPersistedValue("web-ui-state", defaultSharedUIState);
+let sharedUIState: SharedUIState = { ...defaultSharedUIState };
+
+async function initializeSharedUIState() {
+  sharedUIState = await getPersistedValue("web-ui-state", defaultSharedUIState);
+}
 
 function getSharedUIState(): SharedUIState {
   return { ...sharedUIState };
@@ -105,11 +109,13 @@ function rmsDb(pcm: Buffer): number {
   return 20 * Math.log10(Math.max(rms, 1e-10));
 }
 
-export function startWebserver(
+export async function startWebserver(
   port: number = 3000,
   _client: Client,
   voiceController: VoiceController,
 ) {
+  await initializeSharedUIState();
+
   const app = express();
   const server = http.createServer(app);
 
@@ -243,7 +249,7 @@ export function startWebserver(
   // Moderation API endpoints
   app.get("/api/messages", async (req, res, next) => {
     try {
-      const db = getDatabase();
+      const db = await getDatabase();
       const { channel, type, limit = "50", offset = "0" } = req.query as {
         channel?: string;
         type?: string;
@@ -293,7 +299,7 @@ export function startWebserver(
         );
       }
 
-      const count = await syncSelectedChannelBacklog(_client, getDatabase(), guildId, channelId);
+      const count = await syncSelectedChannelBacklog(_client, await getDatabase(), guildId, channelId);
       res.json({
         success: true,
         channelId,

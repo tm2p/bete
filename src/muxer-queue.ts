@@ -1,20 +1,10 @@
-import path from "node:path";
-import Database from "better-sqlite3";
+import { getDatabase as getDatabaseAdapter, DatabaseAdapter } from "./database/adapter";
 import { createChildLogger } from "./logger";
 
 const logger = createChildLogger("muxer-queue");
 
-export interface SqliteStatement {
-  run: (...params: unknown[]) => { changes: number };
-  all: (...params: unknown[]) => unknown[];
-  get: (...params: unknown[]) => unknown;
-}
-
-export interface SqliteDatabase {
-  prepare: (sql: string) => SqliteStatement;
-  exec: (sql: string) => void;
-  close: () => void;
-}
+// Export DatabaseAdapter as SqliteDatabase for backward compatibility
+export type SqliteDatabase = DatabaseAdapter;
 
 export interface MuxerJobData {
   userId: string;
@@ -34,13 +24,12 @@ interface StoredJob {
   error?: string;
 }
 
-const dbPath = path.join(process.cwd(), ".muxer-queue.db");
-let db: SqliteDatabase | null = null;
+let dbAdapter: DatabaseAdapter | null = null;
 
-function initializeDatabase(): SqliteDatabase {
-  const database = new Database(dbPath) as SqliteDatabase;
+async function initializeDatabase(): Promise<DatabaseAdapter> {
+  const adapter = await getDatabaseAdapter();
 
-  database.exec(`
+  adapter.exec(`
     PRAGMA journal_mode = WAL;
 
     CREATE TABLE IF NOT EXISTS muxer_jobs (
@@ -129,26 +118,28 @@ function initializeDatabase(): SqliteDatabase {
 
   for (const migration of migrations) {
     try {
-      database.exec(migration);
+      adapter.exec(migration);
     } catch {
       // Column already exists on databases initialized after schema updates.
     }
   }
 
-  return database;
+  return adapter;
 }
 
-function getDatabase(): SqliteDatabase {
-  if (!db) {
-    db = initializeDatabase();
+async function getDatabaseAdapterInternal(): Promise<DatabaseAdapter> {
+  if (!dbAdapter) {
+    dbAdapter = await initializeDatabase();
   }
-  return db;
+  return dbAdapter;
 }
 
-export { getDatabase };
+// Export as getDatabase for backward compatibility
+export const getDatabase = getDatabaseAdapterInternal;
 
-export function getPersistedValue<T>(key: string, fallback: T): T {
-  const row = getDatabase()
+export async function getPersistedValue<T>(key: string, fallback: T): Promise<T> {
+  const adapter = await getDatabaseAdapterInternal();
+  const row = adapter
     .prepare("SELECT value FROM ui_state WHERE key = ?")
     .get(key) as { value: string } | undefined;
   if (!row) return fallback;
@@ -159,8 +150,9 @@ export function getPersistedValue<T>(key: string, fallback: T): T {
   }
 }
 
-export function setPersistedValue(key: string, value: unknown): void {
-  getDatabase()
+export async function setPersistedValue(key: string, value: unknown): Promise<void> {
+  const adapter = await getDatabaseAdapterInternal();
+  adapter
     .prepare(`
       INSERT INTO ui_state (key, value, updated_at)
       VALUES (?, ?, ?)
@@ -171,11 +163,11 @@ export function setPersistedValue(key: string, value: unknown): void {
 
 export async function enqueueMuxerJob(data: MuxerJobData): Promise<string> {
   try {
-    const database = getDatabase();
+    const adapter = await getDatabaseAdapterInternal();
     const jobId = `${data.userId}-${data.sessionId}`;
     const now = Date.now();
 
-    const stmt = database.prepare(`
+    const stmt = adapter.prepare(`
       INSERT INTO muxer_jobs (id, data, status, attempts, maxAttempts, createdAt, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
@@ -201,8 +193,8 @@ export async function enqueueMuxerJob(data: MuxerJobData): Promise<string> {
 }
 
 export async function getPendingJobs(): Promise<StoredJob[]> {
-  const database = getDatabase();
-  const stmt = database.prepare(`
+  const adapter = await getDatabaseAdapterInternal();
+  const stmt = adapter.prepare(`
     SELECT id, data, status, attempts, maxAttempts, createdAt, updatedAt, error
     FROM muxer_jobs
     WHERE status = 'pending'
@@ -232,18 +224,18 @@ export async function updateJobStatus(
   status: "processing" | "completed" | "failed",
   error?: string,
 ): Promise<void> {
-  const database = getDatabase();
+  const adapter = await getDatabaseAdapterInternal();
   const now = Date.now();
 
   if (status === "failed") {
-    const stmt = database.prepare(`
+    const stmt = adapter.prepare(`
       UPDATE muxer_jobs
       SET status = ?, attempts = attempts + 1, updatedAt = ?, error = ?
       WHERE id = ?
     `);
     stmt.run(status, now, error || null, jobId);
   } else {
-    const stmt = database.prepare(`
+    const stmt = adapter.prepare(`
       UPDATE muxer_jobs
       SET status = ?, updatedAt = ?
       WHERE id = ?
@@ -255,9 +247,9 @@ export async function updateJobStatus(
 }
 
 export async function retryFailedJob(jobId: string): Promise<boolean> {
-  const database = getDatabase();
+  const adapter = await getDatabaseAdapterInternal();
 
-  const job = database
+  const job = adapter
     .prepare("SELECT * FROM muxer_jobs WHERE id = ?")
     .get(jobId) as StoredJob | undefined;
 
@@ -274,7 +266,7 @@ export async function retryFailedJob(jobId: string): Promise<boolean> {
     return false;
   }
 
-  const stmt = database.prepare(`
+  const stmt = adapter.prepare(`
     UPDATE muxer_jobs
     SET status = 'pending', updatedAt = ?
     WHERE id = ?
@@ -289,10 +281,10 @@ export async function retryFailedJob(jobId: string): Promise<boolean> {
 export async function cleanupCompletedJobs(
   olderThanMs: number = 24 * 60 * 60 * 1000,
 ): Promise<number> {
-  const database = getDatabase();
+  const adapter = await getDatabaseAdapterInternal();
   const cutoffTime = Date.now() - olderThanMs;
 
-  const stmt = database.prepare(`
+  const stmt = adapter.prepare(`
     DELETE FROM muxer_jobs
     WHERE status = 'completed' AND updatedAt < ?
   `);
@@ -309,9 +301,9 @@ export async function getJobStats(): Promise<{
   completed: number;
   failed: number;
 }> {
-  const database = getDatabase();
+  const adapter = await getDatabaseAdapterInternal();
 
-  const stats = database
+  const stats = adapter
     .prepare(`
       SELECT
         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
@@ -336,9 +328,9 @@ export async function getJobStats(): Promise<{
 }
 
 export async function closeQueue(): Promise<void> {
-  if (db) {
-    db.close();
-    db = null;
+  if (dbAdapter) {
+    await dbAdapter.close();
+    dbAdapter = null;
     logger.info("Muxer queue closed");
   }
 }
