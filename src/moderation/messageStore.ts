@@ -509,17 +509,16 @@ export async function getPendingMessagesByConversation(
     const db = getDatabase() as any;
 
     // conversationKey is either thread_id or channel_id
-    const isThreadId = conversationKey.startsWith("t");
-    const condition = isThreadId
-      ? eq(messagesTable.thread_id, conversationKey)
-      : eq(messagesTable.channel_id, conversationKey);
-
+    // Query both to safely handle the key
     const rows = await db
       .select()
       .from(messagesTable)
       .where(
         and(
-          condition,
+          or(
+            eq(messagesTable.thread_id, conversationKey),
+            eq(messagesTable.channel_id, conversationKey),
+          ),
           eq(messagesTable.ai_status, "pending"),
           isNull(messagesTable.deleted_at),
         ),
