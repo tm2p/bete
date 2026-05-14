@@ -166,6 +166,174 @@ body {
   flex-shrink: 0;
 }
 
+/* Message Card */
+.message-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: #181825;
+  border-radius: 6px;
+  border: 1px solid #313244;
+}
+
+.message-card.type-deleted {
+  opacity: 0.6;
+}
+
+.message-card-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.message-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.message-card-username {
+  font-weight: 600;
+  color: #89b4fa;
+}
+
+.message-card-time {
+  font-size: 11px;
+  color: #6c7086;
+}
+
+.badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  color: #1e1e2e;
+}
+
+.badge-edited {
+  background: #fab387;
+  color: #1e1e2e;
+}
+
+.badge-deleted {
+  background: #f38ba8;
+  color: #1e1e2e;
+}
+
+.message-card-content {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #bac2de;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-card-analysis {
+  margin-top: 8px;
+  padding: 8px;
+  background: #1e1e2e;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #a6e3a1;
+  white-space: pre-wrap;
+}
+
+.message-card-error {
+  margin-top: 8px;
+  padding: 8px;
+  background: #1e1e2e;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #f38ba8;
+}
+
+.message-card-actions {
+  margin-top: 8px;
+}
+
+.btn-reanalyze {
+  padding: 4px 10px;
+  font-size: 11px;
+  border: none;
+  border-radius: 4px;
+  background: #313244;
+  color: #cdd6f4;
+  cursor: pointer;
+}
+
+.btn-reanalyze:hover:not(:disabled) {
+  background: #45475a;
+}
+
+.btn-reanalyze:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Message Feed */
+.message-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Review Panel */
+.review-panel {
+  border-top: 1px solid #313244;
+  background: #181825;
+  flex-shrink: 0;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.review-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #313244;
+}
+
+.review-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.review-count {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: #f38ba8;
+  color: #1e1e2e;
+  font-weight: 600;
+}
+
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.review-placeholder {
+  padding: 16px;
+  font-size: 12px;
+  color: #6c7086;
+}
+
+.review-panel .empty-state {
+  padding: 16px;
+}
+
+/* Keep existing styles */
 .review-placeholder {
   padding: 16px;
   font-size: 12px;

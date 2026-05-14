@@ -1,21 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { listMessages } from "./api/client";
+import { listMessages, reanalyzeMessage } from "./api/client";
 import { connectDashboardSocket } from "./ws/client";
-import type { DashboardEvent } from "./ws/client";
-
-interface MessageItem {
-  id: string;
-  channel_id: string;
-  user_id: string;
-  username: string;
-  avatar_url: string | null;
-  content: string;
-  created_at: number;
-  type: "text" | "edited" | "deleted";
-}
+import type { DashboardEvent, MessageRecord } from "./api/client";
+import { MessageFeed } from "./components/messages/MessageFeed";
+import { ReviewPanel } from "./components/review/ReviewPanel";
 
 export default function App() {
-  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [wsStatus, setWsStatus] = useState<string>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -72,6 +63,29 @@ export default function App() {
     };
   }, []);
 
+  const handleReanalyze = async (id: string) => {
+    // Optimistic update
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id
+          ? { ...m, ai_status: "pending" as const, ai_error: null, ai_analysis: null }
+          : m,
+      ),
+    );
+
+    try {
+      await reanalyzeMessage(id);
+    } catch (err) {
+      console.error("Reanalyze failed:", err);
+      // Revert optimistic update on failure
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id ? { ...m, ai_status: "error" as const, ai_error: "Reanalyze failed" } : m,
+        ),
+      );
+    }
+  };
+
   return (
     <div className="app">
       <div className="sidebar">
@@ -88,38 +102,10 @@ export default function App() {
         </div>
 
         <div className="content">
-          <div className="message-list">
-            {messages.length === 0 ? (
-              <p className="empty-state">No messages yet</p>
-            ) : (
-              messages.map((msg) => (
-                <div key={msg.id} className={`message-item type-${msg.type}`}>
-                  <img
-                    src={msg.avatar_url ?? "/default-avatar.png"}
-                    alt={msg.username}
-                    className="message-avatar"
-                    width={32}
-                    height={32}
-                  />
-                  <div className="message-body">
-                    <span className="message-username">{msg.username}</span>
-                    <span className="message-time">
-                      {new Date(msg.created_at).toLocaleString()}
-                    </span>
-                    {msg.type === "deleted" && (
-                      <span className="message-deleted">[deleted]</span>
-                    )}
-                    <p className="message-content">{msg.content}</p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <MessageFeed messages={messages} onReanalyze={handleReanalyze} />
         </div>
 
-        <div className="review-panel">
-          <div className="review-placeholder">Review placeholder</div>
-        </div>
+        <ReviewPanel messages={messages} onReanalyze={handleReanalyze} />
       </div>
     </div>
   );
