@@ -11,7 +11,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check --diagnostic-level=error .",
     "format": "biome format --write .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
