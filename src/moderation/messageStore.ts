@@ -458,3 +458,46 @@ export async function listReviewMessages(
     status: ["warn", "flagged", "error"],
   });
 }
+
+export async function getConversationContextBefore(input: {
+  channelId: string;
+  threadId: string | null;
+  beforeCreatedAt: number;
+  limit: number;
+}): Promise<MessageRecord[]> {
+  try {
+    const db = getDatabase() as any;
+    const { channelId, threadId, beforeCreatedAt, limit } = input;
+
+    // Query same thread if threadId exists, otherwise channelId
+    const locationCondition = threadId
+      ? eq(messagesTable.thread_id, threadId)
+      : eq(messagesTable.channel_id, channelId);
+
+    const rows = await db
+      .select()
+      .from(messagesTable)
+      .where(
+        and(
+          locationCondition,
+          sql`${messagesTable.created_at} < ${beforeCreatedAt}`,
+          isNull(messagesTable.deleted_at),
+        ),
+      )
+      .orderBy(desc(messagesTable.created_at))
+      .limit(limit);
+
+    // Return in chronological order (oldest first)
+    return (rows as MessageRecord[]).reverse();
+  } catch (error) {
+    logger.error(
+      {
+        channelId: input.channelId,
+        threadId: input.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "Failed to get conversation context before",
+    );
+    throw error;
+  }
+}
