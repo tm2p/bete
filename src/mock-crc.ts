@@ -8,7 +8,7 @@ for (let i = 0; i < 256; i++) {
   CRC_TABLE[i] = r >>> 0;
 }
 
-const Module = require("module");
+const Module = require("node:module");
 const originalRequire = Module.prototype.require;
 Module.prototype.require = function (id: string) {
   if (id === "node-crc") {

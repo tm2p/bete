@@ -1,9 +1,9 @@
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
 import type { Client } from "discord.js-selfbot-v13";
 import express from "express";
-import fs from "fs";
 import helmet from "helmet";
-import http from "http";
-import path from "path";
 import * as prism from "prism-media";
 import { WebSocketServer } from "ws";
 import { AppError } from "./errors";

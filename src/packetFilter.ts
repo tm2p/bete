@@ -1,4 +1,4 @@
-import { Transform, TransformCallback } from "stream";
+import { Transform, TransformCallback } from "node:stream";
 
 /**
  * Transform stream untuk memfilter audio packets yang terlalu kecil

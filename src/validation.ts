@@ -1,38 +1,22 @@
-import { plainToClass } from "class-transformer";
-import { IsBoolean, IsString, validate } from "class-validator";
+import { z } from "zod";
 
-export class UserStateUpdate {
-  @IsString()
-  userId!: string;
+export const userStateUpdateSchema = z.object({
+  userId: z.string(),
+  username: z.string(),
+  avatar: z.string(),
+  speaking: z.boolean(),
+});
 
-  @IsString()
-  username!: string;
+export type UserStateUpdate = z.infer<typeof userStateUpdateSchema>;
 
-  @IsString()
-  avatar!: string;
-
-  @IsBoolean()
-  speaking!: boolean;
-}
-
-export class AudioMessage {
-  data!: Buffer;
-  userId!: string;
+export interface AudioMessage {
+  data: Buffer;
+  userId: string;
 }
 
 export async function validateUserStateUpdate(
   data: unknown,
 ): Promise<UserStateUpdate | null> {
-  if (typeof data !== "object" || data === null) {
-    return null;
-  }
-
-  const obj = plainToClass(UserStateUpdate, data);
-  const errors = await validate(obj);
-
-  if (errors.length > 0) {
-    return null;
-  }
-
-  return obj;
+  const result = userStateUpdateSchema.safeParse(data);
+  return result.success ? result.data : null;
 }

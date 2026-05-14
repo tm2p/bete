@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import {
   AudioPlayer,
   AudioPlayerStatus,
@@ -6,7 +7,6 @@ import {
   StreamType,
   VoiceConnection,
 } from "@discordjs/voice";
-import { Readable } from "stream";
 
 export class DiscordPlayer {
   private player: AudioPlayer;

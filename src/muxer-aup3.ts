@@ -1,6 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
 import ffmpeg from "fluent-ffmpeg";
-import fs from "fs";
-import path from "path";
 
 const recordingsDir = process.env.RECORDINGS_DIR ?? "./recordings";
 
