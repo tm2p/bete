@@ -1,7 +1,6 @@
 import type { Router } from "express";
 import express from "express";
 import { AppError } from "../errors";
-import { createChildLogger } from "../logger";
 import {
   getAttachmentsByChannel,
   getMessageById,
@@ -9,9 +8,22 @@ import {
   listMessages,
   listReviewMessages,
 } from "../moderation/messageStore";
-import type { MessageQuery } from "../moderation/types";
+import type { AIStatus, MessageQuery } from "../moderation/types";
 
-const logger = createChildLogger("message-routes");
+const aiStatuses = new Set<AIStatus>([
+  "pending",
+  "clean",
+  "warn",
+  "flagged",
+  "error",
+]);
+
+function parseStatuses(value?: string): AIStatus[] | undefined {
+  if (!value) return undefined;
+  return value.split(",").filter((item): item is AIStatus =>
+    aiStatuses.has(item as AIStatus),
+  );
+}
 
 export function createMessageRoutes(): Router {
   const router = express.Router();
@@ -39,21 +51,19 @@ export function createMessageRoutes(): Router {
         cursor?: string;
       };
 
-      // Support both 'channel' (legacy) and 'channelId' (new)
       const targetChannel = channelId || channel;
-
-      if (!targetChannel) {
-        throw new AppError(
-          "channel or channelId query parameter is required",
-          "MISSING_CHANNEL",
-          400,
-        );
-      }
-
       const limitNum = Math.min(parseInt(limit) || 50, 100);
       const offsetNum = parseInt(offset) || 0;
 
       if (type === "image") {
+        if (!targetChannel) {
+          throw new AppError(
+            "channel or channelId query parameter is required",
+            "MISSING_CHANNEL",
+            400,
+          );
+        }
+
         const attachments = await getAttachmentsByChannel(
           targetChannel,
           limitNum,
@@ -63,8 +73,30 @@ export function createMessageRoutes(): Router {
           type: "image",
           data: attachments,
           count: attachments.length,
+          nextCursor: null,
+        });
+      } else if (channelId || cursor || status) {
+        const result = await listMessages({
+          channelId: targetChannel,
+          cursor,
+          limit: limitNum,
+          status: parseStatuses(status),
+        });
+        res.json({
+          type: "text",
+          data: result.data,
+          count: result.data.length,
+          nextCursor: result.nextCursor,
         });
       } else {
+        if (!targetChannel) {
+          throw new AppError(
+            "channel or channelId query parameter is required",
+            "MISSING_CHANNEL",
+            400,
+          );
+        }
+
         const messages = await getMessagesByChannel(
           targetChannel,
           limitNum,
@@ -74,6 +106,7 @@ export function createMessageRoutes(): Router {
           type: "text",
           data: messages,
           count: messages.length,
+          nextCursor: null,
         });
       }
     } catch (error) {
