@@ -8,11 +8,18 @@ import { WebSocketServer } from "ws";
 import { AppError } from "./errors";
 import { createChildLogger, logger } from "./logger";
 import { getMetrics, uptimeGauge } from "./metrics";
+import { syncSelectedChannelBacklog } from "./moderation/backlogSync";
+import {
+  getAttachmentsByChannel,
+  getMessagesByChannel,
+} from "./moderation/messageStore";
+import {
+  getDatabase,
+  getPersistedValue,
+  setPersistedValue,
+} from "./muxer-queue";
 import { discordPlayer } from "./player";
 import type { VoiceController } from "./voiceController";
-import { getDatabase, getPersistedValue, setPersistedValue } from "./muxer-queue";
-import { getMessagesByChannel, getAttachmentsByChannel } from "./moderation/messageStore";
-import { syncSelectedChannelBacklog } from "./moderation/backlogSync";
 
 const wsLogger = createChildLogger("webserver");
 
@@ -139,7 +146,11 @@ export async function startWebserver(
       if (req.originalUrl === "/favicon.ico") return;
       if (res.statusCode >= 400) {
         logger.error(
-          { method: req.method, url: req.originalUrl, statusCode: res.statusCode },
+          {
+            method: req.method,
+            url: req.originalUrl,
+            statusCode: res.statusCode,
+          },
           "HTTP request failed",
         );
       }
@@ -250,7 +261,12 @@ export async function startWebserver(
   app.get("/api/messages", async (req, res, next) => {
     try {
       const db = await getDatabase();
-      const { channel, type, limit = "50", offset = "0" } = req.query as {
+      const {
+        channel,
+        type,
+        limit = "50",
+        offset = "0",
+      } = req.query as {
         channel?: string;
         type?: string;
         limit?: string;
@@ -258,14 +274,23 @@ export async function startWebserver(
       };
 
       if (!channel) {
-        throw new AppError("channel query parameter is required", "MISSING_CHANNEL", 400);
+        throw new AppError(
+          "channel query parameter is required",
+          "MISSING_CHANNEL",
+          400,
+        );
       }
 
       const limitNum = Math.min(parseInt(limit) || 50, 100);
       const offsetNum = parseInt(offset) || 0;
 
       if (type === "image") {
-        const attachments = getAttachmentsByChannel(db, channel, limitNum, offsetNum);
+        const attachments = getAttachmentsByChannel(
+          db,
+          channel,
+          limitNum,
+          offsetNum,
+        );
         res.json({
           type: "image",
           data: attachments,
@@ -299,7 +324,12 @@ export async function startWebserver(
         );
       }
 
-      const count = await syncSelectedChannelBacklog(_client, await getDatabase(), guildId, channelId);
+      const count = await syncSelectedChannelBacklog(
+        _client,
+        await getDatabase(),
+        guildId,
+        channelId,
+      );
       res.json({
         success: true,
         channelId,

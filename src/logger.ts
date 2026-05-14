@@ -7,7 +7,8 @@ export const logger = pino({
   serializers: {
     error: pino.stdSerializers.err,
     err: pino.stdSerializers.err,
-    reason: (value) => value instanceof Error ? pino.stdSerializers.err(value) : value,
+    reason: (value) =>
+      value instanceof Error ? pino.stdSerializers.err(value) : value,
   },
   transport: isDev
     ? {

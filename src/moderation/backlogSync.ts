@@ -53,11 +53,17 @@ export async function syncBacklogMessages(
 
   const guild = client.guilds.cache.get(config.MONITOR_GUILD_ID);
   if (!guild) {
-    logger.warn({ guildId: config.MONITOR_GUILD_ID }, "Monitor guild not found, skipping backlog sync");
+    logger.warn(
+      { guildId: config.MONITOR_GUILD_ID },
+      "Monitor guild not found, skipping backlog sync",
+    );
     return;
   }
 
-  logger.info({ guildId: guild.id }, "Backlog sync ready (will sync on-demand per selected channel)");
+  logger.info(
+    { guildId: guild.id },
+    "Backlog sync ready (will sync on-demand per selected channel)",
+  );
 }
 
 export async function syncSelectedChannelBacklog(
@@ -86,7 +92,10 @@ export async function syncSelectedChannelBacklog(
 
   try {
     const count = await syncChannelMessages(db, channel as any, cutoffTime);
-    logger.info({ channelId, count }, "Backlog sync completed for selected channel");
+    logger.info(
+      { channelId, count },
+      "Backlog sync completed for selected channel",
+    );
     return count;
   } catch (error) {
     logger.warn(

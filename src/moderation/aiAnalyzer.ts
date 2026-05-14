@@ -2,7 +2,11 @@ import { config } from "../config";
 import { createChildLogger } from "../logger";
 import type { SqliteDatabase } from "../muxer-queue";
 import { retryWithBackoff } from "../retry";
-import { getMessageById, getPendingAIAnalysisMessages, updateMessageAIAnalysis } from "./messageStore";
+import {
+  getMessageById,
+  getPendingAIAnalysisMessages,
+  updateMessageAIAnalysis,
+} from "./messageStore";
 import type { MessageRecord } from "./types";
 
 const logger = createChildLogger("ai-analyzer");
@@ -37,7 +41,10 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-function formatMessageForAnalysis(message: MessageRecord, index: number): string {
+function formatMessageForAnalysis(
+  message: MessageRecord,
+  index: number,
+): string {
   const text = getAnalysisText(message);
   const time = new Date(message.created_at).toISOString();
   return `${index + 1}. id=${message.id} time=${time} user=${message.username}: ${text}`;
@@ -49,7 +56,10 @@ function estimateMessageTokens(message: MessageRecord): number {
 
 async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.AI_ANALYSIS_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    config.AI_ANALYSIS_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
@@ -85,10 +95,16 @@ function parseLLMAnalysis(content: string): LLMAnalysis {
   if (jsonStart >= 0 && jsonEnd > jsonStart) {
     try {
       const parsed = JSON.parse(content.slice(jsonStart, jsonEnd + 1));
-      const status = parsed.status === "flagged" ? "flagged" : parsed.status === "warn" ? "warn" : "clean";
+      const status =
+        parsed.status === "flagged"
+          ? "flagged"
+          : parsed.status === "warn"
+            ? "warn"
+            : "clean";
       const flags = Array.isArray(parsed.flags) ? parsed.flags.map(String) : [];
       const score = Math.max(0, Math.min(1, Number(parsed.score) || 0));
-      const analysis = typeof parsed.analysis === "string" ? parsed.analysis : content;
+      const analysis =
+        typeof parsed.analysis === "string" ? parsed.analysis : content;
       return { status, flags, score, analysis };
     } catch {
       // Fall through to text-only parsing.
@@ -96,27 +112,37 @@ function parseLLMAnalysis(content: string): LLMAnalysis {
   }
 
   return {
-    status: /flagged|bahaya|berisiko|toxic|hate|harassment|violence|sexual|self-harm|illegal|scam|hacking/i.test(content) ? "flagged" : /warn|provokasi|hinaan|menyerang/i.test(content) ? "warn" : "clean",
+    status:
+      /flagged|bahaya|berisiko|toxic|hate|harassment|violence|sexual|self-harm|illegal|scam|hacking/i.test(
+        content,
+      )
+        ? "flagged"
+        : /warn|provokasi|hinaan|menyerang/i.test(content)
+          ? "warn"
+          : "clean",
     flags: [],
     score: 0,
     analysis: content.trim() || "Tidak ada analisis dari LLM.",
   };
 }
 
-async function runLLMAnalysis(messages: MessageRecord[]): Promise<{ results: LLMAnalysis[]; raw: unknown }> {
-  const response = await retryWithBackoff(
-    () => fetchJson(`${config.AI_LLM_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${config.AI_LLM_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: config.AI_LLM_MODEL,
-        messages: [
-          {
-            role: "system",
-            content: `Kamu moderator Discord komunitas. Analisis setiap pesan dengan 3 kategori:
+async function runLLMAnalysis(
+  messages: MessageRecord[],
+): Promise<{ results: LLMAnalysis[]; raw: unknown }> {
+  const response = (await retryWithBackoff(
+    () =>
+      fetchJson(`${config.AI_LLM_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.AI_LLM_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: config.AI_LLM_MODEL,
+          messages: [
+            {
+              role: "system",
+              content: `Kamu moderator Discord komunitas. Analisis setiap pesan dengan 3 kategori:
 - CLEAN: Pesan normal, tidak melanggar aturan
 - WARN: Melanggar aturan minor yang menarget orang lain (tone menyerang, hinaan ringan, konflik kecil) - butuh peringatan tapi tidak dihapus
 - FLAGGED: Melanggar aturan berat (NSFW, ilegal, hacking, scam, harassment, violence, SARA, gore, spam, promosi judi) - butuh review moderator untuk penghapusan
@@ -166,18 +192,18 @@ PENENTUAN STATUS:
 
 Balas JSON array dengan schema: [{"status":"clean|warn|flagged","flags":["..."],"score":0..1,"analysis":"ringkasan Bahasa Indonesia + alasan + aksi disarankan"}]
 Satu JSON object per pesan dalam array.`,
-          },
-          {
-            role: "user",
-            content: `Analisis ${messages.length} pesan berikut sebagai satu alur percakapan. Tetap kembalikan satu hasil per pesan dengan urutan yang sama:\n${messages.map(formatMessageForAnalysis).join("\n")}`,
-          },
-        ],
-        temperature: 0.2,
+            },
+            {
+              role: "user",
+              content: `Analisis ${messages.length} pesan berikut sebagai satu alur percakapan. Tetap kembalikan satu hasil per pesan dengan urutan yang sama:\n${messages.map(formatMessageForAnalysis).join("\n")}`,
+            },
+          ],
+          temperature: 0.2,
+        }),
+        signal: AbortSignal.timeout(config.AI_ANALYSIS_TIMEOUT_MS),
       }),
-      signal: AbortSignal.timeout(config.AI_ANALYSIS_TIMEOUT_MS),
-    }),
     { retries: 2, logger },
-  ) as ChatCompletionResponse;
+  )) as ChatCompletionResponse;
 
   const content = response.choices?.[0]?.message?.content?.trim() || "";
 
@@ -191,12 +217,18 @@ Satu JSON object per pesan dalam array.`,
       const parsed = JSON.parse(content.substring(jsonStart, jsonEnd + 1));
       if (Array.isArray(parsed)) {
         results = parsed.map((item: any) => {
-          const status = item.status === "flagged" ? "flagged" : item.status === "warn" ? "warn" : "clean";
+          const status =
+            item.status === "flagged"
+              ? "flagged"
+              : item.status === "warn"
+                ? "warn"
+                : "clean";
           return {
             status,
             flags: Array.isArray(item.flags) ? item.flags.map(String) : [],
             score: Math.max(0, Math.min(1, Number(item.score) || 0)),
-            analysis: typeof item.analysis === "string" ? item.analysis : content,
+            analysis:
+              typeof item.analysis === "string" ? item.analysis : content,
           };
         });
       }
@@ -213,10 +245,15 @@ Satu JSON object per pesan dalam array.`,
   return { results, raw: response };
 }
 
-async function analyzeAndStoreBatch(db: SqliteDatabase, messages: MessageRecord[]): Promise<void> {
+async function analyzeAndStoreBatch(
+  db: SqliteDatabase,
+  messages: MessageRecord[],
+): Promise<void> {
   if (messages.length === 0) return;
 
-  const analyzableMessages = messages.filter((message) => getAnalysisText(message).length > 0);
+  const analyzableMessages = messages.filter(
+    (message) => getAnalysisText(message).length > 0,
+  );
   if (analyzableMessages.length === 0) return;
 
   activeRequests++;
@@ -228,7 +265,12 @@ async function analyzeAndStoreBatch(db: SqliteDatabase, messages: MessageRecord[
       const result = results[i] || parseLLMAnalysis("");
 
       const row = updateMessageAIAnalysis(db, message.id, {
-        status: result.status as "pending" | "clean" | "warn" | "flagged" | "error",
+        status: result.status as
+          | "pending"
+          | "clean"
+          | "warn"
+          | "flagged"
+          | "error",
         flags: JSON.stringify(result.flags),
         score: result.score,
         raw: JSON.stringify(raw),
@@ -242,7 +284,11 @@ async function analyzeAndStoreBatch(db: SqliteDatabase, messages: MessageRecord[
     if (analyzableMessages.length > 1) {
       const midpoint = Math.ceil(analyzableMessages.length / 2);
       logger.warn(
-        { count: analyzableMessages.length, nextBatchSizes: [midpoint, analyzableMessages.length - midpoint], error },
+        {
+          count: analyzableMessages.length,
+          nextBatchSizes: [midpoint, analyzableMessages.length - midpoint],
+          error,
+        },
         "AI batch failed, splitting into smaller batches",
       );
       await analyzeAndStoreBatch(db, analyzableMessages.slice(0, midpoint));
@@ -288,7 +334,11 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
         if (!message) continue;
 
         const messageTokens = estimateMessageTokens(message);
-        if (batch.length > 0 && (batch.length >= MAX_AI_BATCH_MESSAGES || tokenEstimate + messageTokens > batchTokenLimit)) {
+        if (
+          batch.length > 0 &&
+          (batch.length >= MAX_AI_BATCH_MESSAGES ||
+            tokenEstimate + messageTokens > batchTokenLimit)
+        ) {
           queuedMessageIds.add(messageId);
           break;
         }
@@ -298,7 +348,10 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
       }
 
       if (batch.length > 0) {
-        logger.info({ count: batch.length, tokenEstimate }, "Processing AI analysis batch");
+        logger.info(
+          { count: batch.length, tokenEstimate },
+          "Processing AI analysis batch",
+        );
         await analyzeAndStoreBatch(db, batch);
       }
     }
@@ -307,12 +360,17 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
   }
 }
 
-export function queueMessageAnalysis(db: SqliteDatabase, messageId: string): void {
+export function queueMessageAnalysis(
+  db: SqliteDatabase,
+  messageId: string,
+): void {
   if (!config.AI_ANALYSIS_ENABLED) return;
   logger.debug({ messageId }, "Queueing AI analysis");
   queuedMessageIds.add(messageId);
   setImmediate(() => {
-    drainQueue(db).catch((error) => logger.error({ error }, "AI analysis queue failed"));
+    drainQueue(db).catch((error) =>
+      logger.error({ error }, "AI analysis queue failed"),
+    );
   });
 }
 
@@ -327,10 +385,15 @@ export function startPendingAIAnalysisWorker(db: SqliteDatabase): void {
     if (isProcessing) return;
     const pendingMessages = getPendingAIAnalysisMessages(db, 500);
     if (pendingMessages.length === 0) return;
-    logger.info({ count: pendingMessages.length }, "Queueing pending AI analysis messages");
+    logger.info(
+      { count: pendingMessages.length },
+      "Queueing pending AI analysis messages",
+    );
     for (const message of pendingMessages) {
       queuedMessageIds.add(message.id);
     }
-    drainQueue(db).catch((error) => logger.error({ error }, "Pending AI analysis worker failed"));
+    drainQueue(db).catch((error) =>
+      logger.error({ error }, "Pending AI analysis worker failed"),
+    );
   }, 15000);
 }

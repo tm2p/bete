@@ -1,7 +1,7 @@
 import path from "node:path";
 import Database from "better-sqlite3";
-import { createChildLogger } from "../logger";
 import { config } from "../config";
+import { createChildLogger } from "../logger";
 import * as postgres from "./postgres";
 
 const logger = createChildLogger("db-adapter");

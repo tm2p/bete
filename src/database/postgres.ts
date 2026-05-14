@@ -1,6 +1,6 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
-import { createChildLogger } from "../logger";
 import { config } from "../config";
+import { createChildLogger } from "../logger";
 
 const logger = createChildLogger("postgres");
 

@@ -90,12 +90,19 @@ export class VoiceController {
     const threads: ChannelSummary[] = [];
     for (const channel of guild.channels.cache.values()) {
       const threadParent = channel as typeof channel & {
-        threads?: { fetch: (options: { archived: boolean; limit: number }) => Promise<any> };
+        threads?: {
+          fetch: (options: {
+            archived: boolean;
+            limit: number;
+          }) => Promise<any>;
+        };
       };
       if (!threadParent.threads?.fetch) continue;
 
       for (const archived of [false, true]) {
-        const fetched = await threadParent.threads.fetch({ archived, limit: 100 }).catch(() => null);
+        const fetched = await threadParent.threads
+          .fetch({ archived, limit: 100 })
+          .catch(() => null);
         if (!fetched?.threads) continue;
 
         for (const thread of fetched.threads.values()) {
@@ -108,8 +115,9 @@ export class VoiceController {
       }
     }
 
-    return Array.from(new Map(threads.map((thread) => [thread.id, thread])).values())
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(
+      new Map(threads.map((thread) => [thread.id, thread])).values(),
+    ).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async connect(guildId: string, channelId: string): Promise<VoiceStatus> {

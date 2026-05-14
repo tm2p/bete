@@ -1,10 +1,13 @@
-import { createChildLogger } from "../logger";
 import type { DatabaseAdapter } from "../database/adapter";
-import type { MessageRecord, AttachmentRecord } from "./types";
+import { createChildLogger } from "../logger";
+import type { AttachmentRecord, MessageRecord } from "./types";
 
 const logger = createChildLogger("message-store");
 
-export function insertMessage(db: DatabaseAdapter, message: MessageRecord): void {
+export function insertMessage(
+  db: DatabaseAdapter,
+  message: MessageRecord,
+): void {
   try {
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO messages (
@@ -30,10 +33,16 @@ export function insertMessage(db: DatabaseAdapter, message: MessageRecord): void
       message.metadata,
     );
 
-    logger.debug({ messageId: message.id, channelId: message.channel_id }, "Message inserted");
+    logger.debug(
+      { messageId: message.id, channelId: message.channel_id },
+      "Message inserted",
+    );
   } catch (error) {
     logger.error(
-      { messageId: message.id, error: error instanceof Error ? error.message : String(error) },
+      {
+        messageId: message.id,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to insert message",
     );
     throw error;
@@ -57,7 +66,10 @@ export function updateMessageAsEdited(
     logger.debug({ messageId }, "Message marked as edited");
   } catch (error) {
     logger.error(
-      { messageId, error: error instanceof Error ? error.message : String(error) },
+      {
+        messageId,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to update message as edited",
     );
     throw error;
@@ -80,7 +92,10 @@ export function updateMessageAsDeleted(
     logger.debug({ messageId }, "Message marked as deleted");
   } catch (error) {
     logger.error(
-      { messageId, error: error instanceof Error ? error.message : String(error) },
+      {
+        messageId,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to update message as deleted",
     );
     throw error;
@@ -101,18 +116,29 @@ export function getMessagesByChannel(
       LIMIT ? OFFSET ?
     `);
 
-    const rows = stmt.all(channelId, channelId, limit, offset) as MessageRecord[];
+    const rows = stmt.all(
+      channelId,
+      channelId,
+      limit,
+      offset,
+    ) as MessageRecord[];
     return rows;
   } catch (error) {
     logger.error(
-      { channelId, error: error instanceof Error ? error.message : String(error) },
+      {
+        channelId,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to get messages by channel",
     );
     throw error;
   }
 }
 
-export function insertAttachment(db: DatabaseAdapter, attachment: AttachmentRecord): void {
+export function insertAttachment(
+  db: DatabaseAdapter,
+  attachment: AttachmentRecord,
+): void {
   try {
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO attachments (
@@ -139,10 +165,16 @@ export function insertAttachment(db: DatabaseAdapter, attachment: AttachmentReco
       attachment.uploaded_at,
     );
 
-    logger.debug({ attachmentId: attachment.id, messageId: attachment.message_id }, "Attachment inserted");
+    logger.debug(
+      { attachmentId: attachment.id, messageId: attachment.message_id },
+      "Attachment inserted",
+    );
   } catch (error) {
     logger.error(
-      { attachmentId: attachment.id, error: error instanceof Error ? error.message : String(error) },
+      {
+        attachmentId: attachment.id,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to insert attachment",
     );
     throw error;
@@ -163,11 +195,19 @@ export function getAttachmentsByChannel(
       LIMIT ? OFFSET ?
     `);
 
-    const rows = stmt.all(channelId, channelId, limit, offset) as AttachmentRecord[];
+    const rows = stmt.all(
+      channelId,
+      channelId,
+      limit,
+      offset,
+    ) as AttachmentRecord[];
     return rows;
   } catch (error) {
     logger.error(
-      { channelId, error: error instanceof Error ? error.message : String(error) },
+      {
+        channelId,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to get attachments by channel",
     );
     throw error;
@@ -188,10 +228,16 @@ export function updateAttachmentAsUploaded(
     `);
 
     stmt.run(uploadedUrl, uploadedAt, attachmentId);
-    logger.debug({ attachmentId, uploadedUrl }, "Attachment marked as uploaded");
+    logger.debug(
+      { attachmentId, uploadedUrl },
+      "Attachment marked as uploaded",
+    );
   } catch (error) {
     logger.error(
-      { attachmentId, error: error instanceof Error ? error.message : String(error) },
+      {
+        attachmentId,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to update attachment as uploaded",
     );
     throw error;
@@ -214,7 +260,10 @@ export function updateAttachmentAsFailedUpload(
     logger.debug({ attachmentId, error }, "Attachment marked as failed upload");
   } catch (error) {
     logger.error(
-      { attachmentId, error: error instanceof Error ? error.message : String(error) },
+      {
+        attachmentId,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to update attachment as failed",
     );
     throw error;
@@ -255,11 +304,16 @@ export function updateMessageAIAnalysis(
       messageId,
     );
 
-    const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId) as MessageRecord | undefined;
+    const row = db
+      .prepare("SELECT * FROM messages WHERE id = ?")
+      .get(messageId) as MessageRecord | undefined;
     return row ?? null;
   } catch (error) {
     logger.error(
-      { messageId, error: error instanceof Error ? error.message : String(error) },
+      {
+        messageId,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to update message AI analysis",
     );
     throw error;
@@ -289,7 +343,12 @@ export function getPendingAIAnalysisMessages(
   }
 }
 
-export function getMessageById(db: DatabaseAdapter, messageId: string): MessageRecord | null {
-  const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId) as MessageRecord | undefined;
+export function getMessageById(
+  db: DatabaseAdapter,
+  messageId: string,
+): MessageRecord | null {
+  const row = db
+    .prepare("SELECT * FROM messages WHERE id = ?")
+    .get(messageId) as MessageRecord | undefined;
   return row ?? null;
 }

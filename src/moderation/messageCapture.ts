@@ -1,11 +1,15 @@
 import type { Client, Message } from "discord.js-selfbot-v13";
-import { createChildLogger } from "../logger";
 import { config } from "../config";
+import { createChildLogger } from "../logger";
 import type { SqliteDatabase } from "../muxer-queue";
-import { insertMessage, insertAttachment } from "./messageStore";
-import { getDisplayContent, getMessageLocation, getMessageMetadata } from "./messageMetadata";
 import { queueMessageAnalysis } from "./aiAnalyzer";
-import type { MessageRecord, AttachmentRecord } from "./types";
+import {
+  getDisplayContent,
+  getMessageLocation,
+  getMessageMetadata,
+} from "./messageMetadata";
+import { insertAttachment, insertMessage } from "./messageStore";
+import type { AttachmentRecord, MessageRecord } from "./types";
 
 const logger = createChildLogger("message-capture");
 
@@ -89,7 +93,10 @@ export async function captureMessage(
   );
 }
 
-export function registerMessageCapture(client: Client, db: SqliteDatabase): void {
+export function registerMessageCapture(
+  client: Client,
+  db: SqliteDatabase,
+): void {
   client.on("messageCreate", async (message) => {
     if (!message.guildId || message.guildId !== config.MONITOR_GUILD_ID) return;
     if (message.author?.bot) return;
@@ -98,14 +105,18 @@ export function registerMessageCapture(client: Client, db: SqliteDatabase): void
       await captureMessage(db, message, "text");
     } catch (error) {
       logger.error(
-        { messageId: message.id, error: error instanceof Error ? error.message : String(error) },
+        {
+          messageId: message.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
         "Failed to capture message",
       );
     }
   });
 
   client.on("messageUpdate", async (_oldMessage, newMessage) => {
-    if (!newMessage.guildId || newMessage.guildId !== config.MONITOR_GUILD_ID) return;
+    if (!newMessage.guildId || newMessage.guildId !== config.MONITOR_GUILD_ID)
+      return;
     if (newMessage.author?.bot) return;
 
     try {
@@ -117,7 +128,12 @@ export function registerMessageCapture(client: Client, db: SqliteDatabase): void
 
       if (existing) {
         const editedAt = Date.now();
-        updateMessageAsEdited(db, newMessage.id, getDisplayContent(newMessage as Message), editedAt);
+        updateMessageAsEdited(
+          db,
+          newMessage.id,
+          getDisplayContent(newMessage as Message),
+          editedAt,
+        );
         queueMessageAnalysis(db, newMessage.id);
 
         const broadcaster = globalThis as any;
@@ -133,7 +149,10 @@ export function registerMessageCapture(client: Client, db: SqliteDatabase): void
       }
     } catch (error) {
       logger.error(
-        { messageId: newMessage.id, error: error instanceof Error ? error.message : String(error) },
+        {
+          messageId: newMessage.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
         "Failed to capture message update",
       );
     }
@@ -159,7 +178,10 @@ export function registerMessageCapture(client: Client, db: SqliteDatabase): void
       logger.info({ messageId: message.id }, "Message deletion captured");
     } catch (error) {
       logger.error(
-        { messageId: message.id, error: error instanceof Error ? error.message : String(error) },
+        {
+          messageId: message.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
         "Failed to capture message deletion",
       );
     }

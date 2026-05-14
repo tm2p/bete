@@ -1,4 +1,8 @@
-import type { Message, TextChannel, ThreadChannel } from "discord.js-selfbot-v13";
+import type {
+  Message,
+  TextChannel,
+  ThreadChannel,
+} from "discord.js-selfbot-v13";
 
 export interface MessageLocation {
   channelId: string;
@@ -8,7 +12,12 @@ export interface MessageLocation {
 }
 
 export interface RichMessageMetadata {
-  stickers: Array<{ id: string; name: string; url: string; format: string | null }>;
+  stickers: Array<{
+    id: string;
+    name: string;
+    url: string;
+    format: string | null;
+  }>;
   embeds: Array<{
     title: string | null;
     description: string | null;
@@ -16,7 +25,11 @@ export interface RichMessageMetadata {
     color: number | null;
     image: string | null;
     thumbnail: string | null;
-    author: { name: string | null; url: string | null; iconURL: string | null } | null;
+    author: {
+      name: string | null;
+      url: string | null;
+      iconURL: string | null;
+    } | null;
     footer: { text: string | null; iconURL: string | null } | null;
     fields: Array<{ name: string; value: string; inline: boolean }>;
   }>;
@@ -66,7 +79,9 @@ export function getMessageLocation(message: Message): MessageLocation {
   };
 }
 
-export function getStickerMetadata(message: Message): RichMessageMetadata["stickers"] {
+export function getStickerMetadata(
+  message: Message,
+): RichMessageMetadata["stickers"] {
   return Array.from(message.stickers.values()).map((sticker) => ({
     id: sticker.id,
     name: sticker.name,
@@ -75,7 +90,9 @@ export function getStickerMetadata(message: Message): RichMessageMetadata["stick
   }));
 }
 
-export function getAttachmentMetadata(message: Message): RichMessageMetadata["attachments"] {
+export function getAttachmentMetadata(
+  message: Message,
+): RichMessageMetadata["attachments"] {
   return Array.from(message.attachments.values()).map((attachment) => ({
     id: attachment.id,
     name: attachment.name || "unknown",
@@ -85,7 +102,9 @@ export function getAttachmentMetadata(message: Message): RichMessageMetadata["at
   }));
 }
 
-export function getEmbedMetadata(message: Message): RichMessageMetadata["embeds"] {
+export function getEmbedMetadata(
+  message: Message,
+): RichMessageMetadata["embeds"] {
   return message.embeds.map((embed) => ({
     title: embed.title ?? null,
     description: embed.description ?? null,
@@ -130,7 +149,10 @@ export function getMessageMetadata(message: Message): RichMessageMetadata {
     member: member
       ? {
           displayName: member.displayName ?? null,
-          roles: member.roles.cache.map((role) => ({ id: role.id, name: role.name })),
+          roles: member.roles.cache.map((role) => ({
+            id: role.id,
+            name: role.name,
+          })),
           joinedTimestamp: member.joinedTimestamp ?? null,
         }
       : null,
@@ -155,12 +177,16 @@ export function getDisplayContent(message: Message): string {
 
   const attachments = getAttachmentMetadata(message);
   if (attachments.length > 0) {
-    return attachments.map((attachment) => `[Attachment: ${attachment.name}]`).join(" ");
+    return attachments
+      .map((attachment) => `[Attachment: ${attachment.name}]`)
+      .join(" ");
   }
 
   const embeds = getEmbedMetadata(message);
   if (embeds.length > 0) {
-    return embeds.map((embed) => embed.title || embed.description || "[Embed]").join(" ");
+    return embeds
+      .map((embed) => embed.title || embed.description || "[Embed]")
+      .join(" ");
   }
 
   return "";

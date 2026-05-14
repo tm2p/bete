@@ -1,8 +1,11 @@
-import { createChildLogger } from "../logger";
 import { config } from "../config";
-import { retryWithBackoff } from "../retry";
+import { createChildLogger } from "../logger";
 import type { SqliteDatabase } from "../muxer-queue";
-import { updateAttachmentAsUploaded, updateAttachmentAsFailedUpload } from "./messageStore";
+import { retryWithBackoff } from "../retry";
+import {
+  updateAttachmentAsFailedUpload,
+  updateAttachmentAsUploaded,
+} from "./messageStore";
 
 const logger = createChildLogger("attachment-uploader");
 
@@ -25,7 +28,9 @@ export interface ParsedUploadResponse {
   type: string;
 }
 
-export function parseUploadResponse(response: PicserUploadResponse): ParsedUploadResponse {
+export function parseUploadResponse(
+  response: PicserUploadResponse,
+): ParsedUploadResponse {
   if (!response.success) {
     throw new Error("Upload failed: success=false");
   }
@@ -49,7 +54,9 @@ export async function uploadAttachmentToPicser(
   filename: string,
 ): Promise<ParsedUploadResponse> {
   const formData = new FormData();
-  const blob = new Blob([new Uint8Array(fileBuffer)], { type: "application/octet-stream" });
+  const blob = new Blob([new Uint8Array(fileBuffer)], {
+    type: "application/octet-stream",
+  });
   formData.append("file", blob, filename);
 
   try {
@@ -76,11 +83,17 @@ export async function uploadAttachmentToPicser(
     );
 
     const parsed = parseUploadResponse(response);
-    logger.info({ filename, url: parsed.url }, "Attachment uploaded successfully");
+    logger.info(
+      { filename, url: parsed.url },
+      "Attachment uploaded successfully",
+    );
     return parsed;
   } catch (error) {
     logger.error(
-      { filename, error: error instanceof Error ? error.message : String(error) },
+      {
+        filename,
+        error: error instanceof Error ? error.message : String(error),
+      },
       "Failed to upload attachment",
     );
     throw error;
@@ -121,13 +134,18 @@ export async function processAttachmentUpload(
 
     const sizeMb = buffer.length / (1024 * 1024);
     if (sizeMb > config.ATTACHMENT_MAX_SIZE_MB) {
-      throw new Error(`File size ${sizeMb.toFixed(2)}MB exceeds limit of ${config.ATTACHMENT_MAX_SIZE_MB}MB`);
+      throw new Error(
+        `File size ${sizeMb.toFixed(2)}MB exceeds limit of ${config.ATTACHMENT_MAX_SIZE_MB}MB`,
+      );
     }
 
     const result = await uploadAttachmentToPicser(buffer, filename);
 
     updateAttachmentAsUploaded(db, attachmentId, result.url, Date.now());
-    logger.info({ attachmentId, uploadedUrl: result.url }, "Attachment upload completed");
+    logger.info(
+      { attachmentId, uploadedUrl: result.url },
+      "Attachment upload completed",
+    );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     updateAttachmentAsFailedUpload(db, attachmentId, errorMsg);

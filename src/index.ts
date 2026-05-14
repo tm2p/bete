@@ -4,19 +4,22 @@ import "@snazzah/davey";
 import "dotenv/config";
 import { Client } from "discord.js-selfbot-v13";
 import { config } from "./config";
+import { getDatabase } from "./database/adapter";
 import { createChildLogger } from "./logger";
+import { startPendingAIAnalysisWorker } from "./moderation/aiAnalyzer";
+import { syncBacklogMessages } from "./moderation/backlogSync";
+import { registerMessageCapture } from "./moderation/messageCapture";
 import { discordPlayer } from "./player";
 import { VoiceController } from "./voiceController";
 import { startWebserver } from "./webserver";
-import { registerMessageCapture } from "./moderation/messageCapture";
-import { syncBacklogMessages } from "./moderation/backlogSync";
-import { getDatabase } from "./database/adapter";
-import { startPendingAIAnalysisWorker } from "./moderation/aiAnalyzer";
 
 const logger = createChildLogger("bot");
 
 const token = config.DISCORD_TOKEN;
-logger.info({ hasToken: token.length > 0, tokenLength: token.length }, "Config loaded");
+logger.info(
+  { hasToken: token.length > 0, tokenLength: token.length },
+  "Config loaded",
+);
 
 logger.info("Creating Discord client");
 const client = new Client();
@@ -105,11 +108,14 @@ async function initializeApp() {
   });
 
   logger.info("Calling Discord client.login");
-  client.login(token).then(() => {
-    logger.info("Discord client.login resolved");
-  }).catch((error) => {
-    logger.error({ error }, "Discord client.login failed");
-  });
+  client
+    .login(token)
+    .then(() => {
+      logger.info("Discord client.login resolved");
+    })
+    .catch((error) => {
+      logger.error({ error }, "Discord client.login failed");
+    });
 }
 
 initializeApp().catch((error) => {

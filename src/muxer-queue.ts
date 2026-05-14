@@ -1,4 +1,7 @@
-import { getDatabase as getDatabaseAdapter, DatabaseAdapter } from "./database/adapter";
+import {
+  DatabaseAdapter,
+  getDatabase as getDatabaseAdapter,
+} from "./database/adapter";
 import { createChildLogger } from "./logger";
 
 const logger = createChildLogger("muxer-queue");
@@ -137,7 +140,10 @@ async function getDatabaseAdapterInternal(): Promise<DatabaseAdapter> {
 // Export as getDatabase for backward compatibility
 export const getDatabase = getDatabaseAdapterInternal;
 
-export async function getPersistedValue<T>(key: string, fallback: T): Promise<T> {
+export async function getPersistedValue<T>(
+  key: string,
+  fallback: T,
+): Promise<T> {
   const adapter = await getDatabaseAdapterInternal();
   const row = adapter
     .prepare("SELECT value FROM ui_state WHERE key = ?")
@@ -150,7 +156,10 @@ export async function getPersistedValue<T>(key: string, fallback: T): Promise<T>
   }
 }
 
-export async function setPersistedValue(key: string, value: unknown): Promise<void> {
+export async function setPersistedValue(
+  key: string,
+  value: unknown,
+): Promise<void> {
   const adapter = await getDatabaseAdapterInternal();
   adapter
     .prepare(`
