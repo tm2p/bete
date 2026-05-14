@@ -29,7 +29,15 @@ export default function App() {
     const ws = connectDashboardSocket((event: DashboardEvent) => {
       switch (event.type) {
         case "message_created":
-          setMessages((prev) => [event.data, ...prev].slice(0, 200));
+          setMessages((prev) => {
+            const existing = prev.some((message) => message.id === event.data.id);
+            if (existing) {
+              return prev.map((message) =>
+                message.id === event.data.id ? event.data : message,
+              );
+            }
+            return [event.data, ...prev].slice(0, 200);
+          });
           break;
         case "message_analyzed":
           setMessages((prev) =>

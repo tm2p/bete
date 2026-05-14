@@ -60,6 +60,7 @@ export function MessageCard({ message, onReanalyze }: MessageCardProps) {
 
         <div className="message-card-actions">
           <button
+            type="button"
             className="btn-reanalyze"
             onClick={() => onReanalyze(message.id)}
             disabled={aiStatus === "pending"}

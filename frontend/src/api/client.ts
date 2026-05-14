@@ -29,16 +29,7 @@ export interface PageResult<T> {
   nextCursor: string | null;
 }
 
-export interface DashboardMessage {
-  id: string;
-  channel_id: string;
-  user_id: string;
-  username: string;
-  avatar_url: string | null;
-  content: string;
-  created_at: number;
-  type: "text" | "image" | "voice";
-}
+export type DashboardMessage = MessageRecord;
 
 export interface Guild {
   id: string;
