@@ -6,6 +6,24 @@ import { createChildLogger } from "../logger";
 import { syncSelectedChannelBacklog } from "../moderation/backlogSync";
 
 const logger = createChildLogger("sync-routes");
+const BACKLOG_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+const recentBacklogSyncs = new Map<string, number>();
+
+export function shouldSkipRecentBacklogSync(
+  guildId: string,
+  channelId: string,
+  now = Date.now(),
+): boolean {
+  const key = `${guildId}:${channelId}`;
+  const lastSync = recentBacklogSyncs.get(key);
+  if (lastSync && now - lastSync < BACKLOG_SYNC_COOLDOWN_MS) return true;
+  recentBacklogSyncs.set(key, now);
+  return false;
+}
+
+export function clearRecentBacklogSyncs(): void {
+  recentBacklogSyncs.clear();
+}
 
 export function createSyncRoutes(client: Client): Router {
   const router = express.Router();
@@ -26,6 +44,17 @@ export function createSyncRoutes(client: Client): Router {
         );
       }
 
+      if (shouldSkipRecentBacklogSync(guildId, channelId)) {
+        logger.debug({ guildId, channelId }, "Skipping recent backlog sync");
+        res.json({
+          success: true,
+          channelId,
+          messagesSync: 0,
+          skipped: true,
+        });
+        return;
+      }
+
       logger.info({ guildId, channelId }, "Starting backlog sync");
 
       const count = await syncSelectedChannelBacklog(
@@ -43,6 +72,7 @@ export function createSyncRoutes(client: Client): Router {
         success: true,
         channelId,
         messagesSync: count,
+        skipped: false,
       });
     } catch (error) {
       next(error);
