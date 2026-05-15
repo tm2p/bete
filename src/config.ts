@@ -6,6 +6,9 @@ const configSchema = z
     DISCORD_TOKEN: z.string().min(1, "DISCORD_TOKEN is required"),
     VOICE_CHANNEL_ID: z.string().min(1).optional(),
     GUILD_ID: z.string().min(1).optional(),
+    TEXT_GUILD_ID: z.string().min(1).optional(),
+    TEXT_CHANNEL_ID: z.string().min(1).optional(),
+    VOICE_GUILD_ID: z.string().min(1).optional(),
     VERBOSE: z
       .string()
       .optional()
@@ -98,11 +101,19 @@ const configSchema = z
     }
   });
 
-export type AppConfig = z.infer<typeof configSchema>;
+export type AppConfig = z.infer<typeof configSchema> & {
+  EFFECTIVE_TEXT_GUILD_ID?: string;
+  EFFECTIVE_VOICE_GUILD_ID?: string;
+};
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   try {
-    return configSchema.parse(env);
+    const parsed = configSchema.parse(env);
+    return {
+      ...parsed,
+      EFFECTIVE_TEXT_GUILD_ID: parsed.TEXT_GUILD_ID ?? parsed.MONITOR_GUILD_ID,
+      EFFECTIVE_VOICE_GUILD_ID: parsed.VOICE_GUILD_ID ?? parsed.GUILD_ID,
+    };
   } catch (error) {
     if (error instanceof z.ZodError) {
       const messages = error.issues

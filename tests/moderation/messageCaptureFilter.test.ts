@@ -1,0 +1,27 @@
+import { describe, expect, it } from "vitest";
+import { shouldCaptureMessageLocation } from "../../src/moderation/messageCapture";
+
+describe("shouldCaptureMessageLocation", () => {
+  it("matches only configured text guild and optional channel", () => {
+    expect(
+      shouldCaptureMessageLocation(
+        { guildId: "guild-1", channelId: "channel-1" },
+        { guildId: "guild-1", channelId: "channel-1" },
+      ),
+    ).toBe(true);
+
+    expect(
+      shouldCaptureMessageLocation(
+        { guildId: "guild-1", channelId: "channel-2" },
+        { guildId: "guild-1", channelId: "channel-1" },
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldCaptureMessageLocation(
+        { guildId: "guild-2", channelId: "channel-1" },
+        { guildId: "guild-1", channelId: "channel-1" },
+      ),
+    ).toBe(false);
+  });
+});

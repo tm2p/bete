@@ -5,17 +5,22 @@ import { createChildLogger } from "../logger";
 const logger = createChildLogger("ui-state-routes");
 
 export interface SharedUIState {
-  selectedGuild: string;
+  selectedVoiceGuild: string;
   selectedVoiceChannel: string;
+  selectedTextGuild: string;
   selectedTextChannel: string;
   activeTab: "voice" | "text";
   isListening: boolean;
   isStreaming: boolean;
 }
 
+export type SharedUIStatePatch = Partial<SharedUIState> & {
+  selectedGuild?: string;
+};
+
 export interface UIStateRouteOptions {
   getSharedUIState: () => SharedUIState;
-  patchSharedUIState: (patch: Partial<SharedUIState>) => SharedUIState;
+  patchSharedUIState: (patch: SharedUIStatePatch) => SharedUIState;
 }
 
 export function createUIStateRoutes(options: UIStateRouteOptions): Router {
@@ -35,7 +40,7 @@ export function createUIStateRoutes(options: UIStateRouteOptions): Router {
   // POST /api/ui-state - Update UI state
   router.post("/ui-state", (req, res, next) => {
     try {
-      const patch = req.body as Partial<SharedUIState>;
+      const patch = req.body as SharedUIStatePatch;
       const updated = patchSharedUIState(patch);
       res.json(updated);
     } catch (error) {

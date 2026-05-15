@@ -24,7 +24,7 @@
 
     <nav class="tab-panel">
       <div class="tabs"><button class="tab-btn active" data-tab="voice">Voice</button><button class="tab-btn" data-tab="text">Text</button></div>
-      <div class="filter-row"><span>Channel / Thread</span><select id="channelFilter"><option value="">Select channel</option></select></div>
+      <div class="filter-row"><span>Text Guild</span><select id="textGuildSelect"><option value="">Select guild</option></select><span>Channel / Thread</span><select id="channelFilter"><option value="">Select channel</option></select></div>
     </nav>
 
     <div id="errorBox" class="error"></div>
@@ -33,7 +33,7 @@
       <div class="voice-layout">
         <div class="content-card">
           <div class="card-title"><h2>Voice Control</h2><span class="mini">bridge</span></div>
-          <div class="field-group"><label for="guildSelect">Guild</label><select id="guildSelect"><option value="">Select guild</option></select></div>
+          <div class="field-group"><label for="voiceGuildSelect">Voice Guild</label><select id="voiceGuildSelect"><option value="">Select guild</option></select></div>
           <div class="field-group"><label for="channelSelect">Voice Channel</label><select id="channelSelect"><option value="">Select voice channel</option></select></div>
           <div class="button-row"><button id="joinVoiceBtn" class="btn btn-success">Join</button><button id="disconnectVoiceBtn" class="btn btn-danger">Disconnect</button></div>
           <div class="voice-status" id="voiceStatusNote">Idle</div>
@@ -53,8 +53,9 @@
   <script>
     const state = {
       socket: null,
-      selectedGuild: '',
+      selectedVoiceGuild: '',
       selectedVoiceChannel: '',
+      selectedTextGuild: '',
       selectedTextChannel: '',
       activeTab: 'voice',
       text: [],
@@ -71,7 +72,7 @@
     const SAMPLE_RATE = 24000;
     const CHANNELS = 1;
     const el = {
-      wsDot: document.getElementById('wsDot'), wsStatusText: document.getElementById('wsStatusText'), activeTabLabel: document.getElementById('activeTabLabel'), errorBox: document.getElementById('errorBox'), guildSelect: document.getElementById('guildSelect'), channelSelect: document.getElementById('channelSelect'), channelFilter: document.getElementById('channelFilter'), joinVoiceBtn: document.getElementById('joinVoiceBtn'), disconnectVoiceBtn: document.getElementById('disconnectVoiceBtn'), voiceStatusText: document.getElementById('voiceStatusText'), voiceStatusNote: document.getElementById('voiceStatusNote'), toggleBtn: document.getElementById('toggleBtn'), listenBtn: document.getElementById('listenBtn'), listenStatus: document.getElementById('listenStatus'), visualizer: document.getElementById('visualizer'), userList: document.getElementById('userList'), textList: document.getElementById('textList'), reviewList: document.getElementById('reviewList')
+      wsDot: document.getElementById('wsDot'), wsStatusText: document.getElementById('wsStatusText'), activeTabLabel: document.getElementById('activeTabLabel'), errorBox: document.getElementById('errorBox'), voiceGuildSelect: document.getElementById('voiceGuildSelect'), textGuildSelect: document.getElementById('textGuildSelect'), channelSelect: document.getElementById('channelSelect'), channelFilter: document.getElementById('channelFilter'), joinVoiceBtn: document.getElementById('joinVoiceBtn'), disconnectVoiceBtn: document.getElementById('disconnectVoiceBtn'), voiceStatusText: document.getElementById('voiceStatusText'), voiceStatusNote: document.getElementById('voiceStatusNote'), toggleBtn: document.getElementById('toggleBtn'), listenBtn: document.getElementById('listenBtn'), listenStatus: document.getElementById('listenStatus'), visualizer: document.getElementById('visualizer'), userList: document.getElementById('userList'), textList: document.getElementById('textList'), reviewList: document.getElementById('reviewList')
     };
     for (let i = 0; i < 32; i++) { const bar = document.createElement('div'); bar.className = 'bar'; el.visualizer.appendChild(bar); }
     const bars = [...document.querySelectorAll('.bar')];
@@ -85,10 +86,11 @@
     function appendBadge(parent, label, className) { const badge = document.createElement('span'); badge.className = `badge ${className}`; badge.textContent = label; parent.appendChild(badge); }
     function parseMetadata(value) { if (!value) return {}; try { return JSON.parse(value); } catch { return {}; } }
 
-    async function loadGuilds() { const guilds = await apiRequest('/api/guilds'); renderOptions(el.guildSelect, guilds, 'Select guild'); if (state.selectedGuild) { el.guildSelect.value = state.selectedGuild; await loadChannels(state.selectedGuild); } }
-    async function loadChannels(guildId) { if (!guildId) return; const [voiceChannels, watchChannels] = await Promise.all([apiRequest(`/api/guilds/${guildId}/voice-channels`), apiRequest(`/api/guilds/${guildId}/channels`)]); renderOptions(el.channelSelect, voiceChannels, 'Select voice channel'); renderOptions(el.channelFilter, watchChannels, 'Select channel'); if (state.selectedVoiceChannel) el.channelSelect.value = state.selectedVoiceChannel; if (state.selectedTextChannel) el.channelFilter.value = state.selectedTextChannel; apiRequest(`/api/guilds/${guildId}/threads`).then((threads) => { appendOptions(el.channelFilter, threads); if (state.selectedTextChannel) el.channelFilter.value = state.selectedTextChannel; }).catch((error) => showError(`Thread discovery failed: ${error.message}`)); }
+    async function loadGuilds() { const guilds = await apiRequest('/api/guilds'); renderOptions(el.voiceGuildSelect, guilds, 'Select guild'); renderOptions(el.textGuildSelect, guilds, 'Select guild'); if (state.selectedVoiceGuild) { el.voiceGuildSelect.value = state.selectedVoiceGuild; await loadVoiceChannels(state.selectedVoiceGuild); } if (state.selectedTextGuild) { el.textGuildSelect.value = state.selectedTextGuild; await loadTextChannels(state.selectedTextGuild); } }
+    async function loadVoiceChannels(guildId) { if (!guildId) return renderOptions(el.channelSelect, [], 'Select voice channel'); const voiceChannels = await apiRequest(`/api/guilds/${guildId}/voice-channels`); renderOptions(el.channelSelect, voiceChannels, 'Select voice channel'); if (state.selectedVoiceChannel) el.channelSelect.value = state.selectedVoiceChannel; }
+    async function loadTextChannels(guildId) { if (!guildId) return renderOptions(el.channelFilter, [], 'Select channel'); const watchChannels = await apiRequest(`/api/guilds/${guildId}/channels`); renderOptions(el.channelFilter, watchChannels, 'Select channel'); if (state.selectedTextChannel) el.channelFilter.value = state.selectedTextChannel; apiRequest(`/api/guilds/${guildId}/threads`).then((threads) => { appendOptions(el.channelFilter, threads); if (state.selectedTextChannel) el.channelFilter.value = state.selectedTextChannel; }).catch((error) => showError(`Thread discovery failed: ${error.message}`)); }
     async function refreshStatus() { try { const status = await apiRequest('/api/status'); el.voiceStatusText.textContent = status.connected ? status.activeChannelName || 'Connected' : 'Not connected'; el.voiceStatusNote.textContent = status.connected ? `Connected to ${status.activeChannelName}` : 'Idle'; } catch (error) { showError(error.message); } }
-    async function connectVoice() { const guildId = el.guildSelect.value; const channelId = el.channelSelect.value; if (!guildId || !channelId) return showError('Select guild and voice channel first'); await postUIState({ selectedGuild: guildId, selectedVoiceChannel: channelId }); const status = await apiRequest('/api/connect', { method: 'POST', body: JSON.stringify({ guildId, channelId }) }); el.voiceStatusText.textContent = status.activeChannelName || 'Connected'; el.voiceStatusNote.textContent = `Connected to ${status.activeChannelName}`; }
+    async function connectVoice() { const guildId = el.voiceGuildSelect.value; const channelId = el.channelSelect.value; if (!guildId || !channelId) return showError('Select guild and voice channel first'); await postUIState({ selectedVoiceGuild: guildId, selectedVoiceChannel: channelId }); const status = await apiRequest('/api/connect', { method: 'POST', body: JSON.stringify({ guildId, channelId }) }); el.voiceStatusText.textContent = status.activeChannelName || 'Connected'; el.voiceStatusNote.textContent = `Connected to ${status.activeChannelName}`; }
     async function disconnectVoice() { await apiRequest('/api/disconnect', { method: 'POST' }); await refreshStatus(); }
 
     function connectWebSocket() { const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; state.socket = new WebSocket(`${protocol}//${location.host}/ws`); state.socket.binaryType = 'arraybuffer'; state.socket.onopen = () => { el.wsDot.classList.add('on'); el.wsStatusText.textContent = 'Connected'; }; state.socket.onclose = () => { el.wsDot.classList.remove('on'); el.wsStatusText.textContent = 'Reconnecting'; setTimeout(connectWebSocket, 2500); }; state.socket.onerror = () => { el.wsDot.classList.remove('on'); el.wsDot.classList.add('warn'); el.wsStatusText.textContent = 'Socket error'; }; state.socket.onmessage = (event) => { if (event.data instanceof ArrayBuffer) { handleIncomingPCM(event.data); return; } try { handleJsonEvent(event.data); } catch {} }; }
@@ -97,24 +99,30 @@
     async function applyServerState(next) {
       if (!next || state.applyingServerState) return;
       state.applyingServerState = true;
-      const guildChanged = next.selectedGuild !== state.selectedGuild;
+      const nextVoiceGuild = next.selectedVoiceGuild || next.selectedGuild || '';
+      const nextTextGuild = next.selectedTextGuild || next.selectedGuild || '';
+      const voiceGuildChanged = nextVoiceGuild !== state.selectedVoiceGuild;
+      const textGuildChanged = nextTextGuild !== state.selectedTextGuild;
       const textChanged = next.selectedTextChannel !== state.selectedTextChannel;
-      state.selectedGuild = next.selectedGuild || '';
+      state.selectedVoiceGuild = nextVoiceGuild;
       state.selectedVoiceChannel = next.selectedVoiceChannel || '';
+      state.selectedTextGuild = nextTextGuild;
       state.selectedTextChannel = next.selectedTextChannel || '';
       state.activeTab = next.activeTab || 'voice';
       state.isListening = !!next.isListening;
       state.isStreaming = !!next.isStreaming;
-      el.guildSelect.value = state.selectedGuild;
-      if (guildChanged && state.selectedGuild) await loadChannels(state.selectedGuild);
+      el.voiceGuildSelect.value = state.selectedVoiceGuild;
+      el.textGuildSelect.value = state.selectedTextGuild;
+      if (voiceGuildChanged) await loadVoiceChannels(state.selectedVoiceGuild);
+      if (textGuildChanged) await loadTextChannels(state.selectedTextGuild);
       el.channelSelect.value = state.selectedVoiceChannel;
       el.channelFilter.value = state.selectedTextChannel;
       applyActiveTab(state.activeTab);
-      if (textChanged || state.activeTab === 'text') {
-        if (state.selectedTextChannel && state.selectedGuild) {
+      if (textChanged || textGuildChanged || state.activeTab === 'text') {
+        if (state.selectedTextChannel && state.selectedTextGuild) {
           await apiRequest('/api/backlog-sync', {
             method: 'POST',
-            body: JSON.stringify({ guildId: state.selectedGuild, channelId: state.selectedTextChannel }),
+            body: JSON.stringify({ guildId: state.selectedTextGuild, channelId: state.selectedTextChannel }),
           }).catch((error) => logger.warn('Backlog sync failed:', error.message));
         }
         await fetchText().catch((error) => showError(error.message));
@@ -142,13 +150,14 @@
     function updateVisualizer(level) { bars.forEach((bar, index) => { const wave = Math.sin(index * 0.55 + Date.now() / 140) * 0.35 + 0.65; bar.style.height = `${Math.max(3, level * 190 * wave)}px`; }); }
 
     document.querySelectorAll('.tab-btn').forEach((button) => { button.addEventListener('click', () => postUIState({ activeTab: button.dataset.tab }).catch((error) => showError(error.message))); });
-    el.guildSelect.addEventListener('change', () => postUIState({ selectedGuild: el.guildSelect.value, selectedVoiceChannel: '', selectedTextChannel: '' }).catch((error) => showError(error.message)));
+    el.voiceGuildSelect.addEventListener('change', () => postUIState({ selectedVoiceGuild: el.voiceGuildSelect.value, selectedVoiceChannel: '' }).catch((error) => showError(error.message)));
+    el.textGuildSelect.addEventListener('change', () => postUIState({ selectedTextGuild: el.textGuildSelect.value, selectedTextChannel: '' }).catch((error) => showError(error.message)));
     el.channelSelect.addEventListener('change', () => postUIState({ selectedVoiceChannel: el.channelSelect.value }).catch((error) => showError(error.message)));
     el.joinVoiceBtn.addEventListener('click', () => connectVoice().catch((error) => showError(error.message)));
     el.disconnectVoiceBtn.addEventListener('click', () => disconnectVoice().catch((error) => showError(error.message)));
     el.toggleBtn.addEventListener('click', () => postUIState({ isStreaming: !state.isStreaming }).catch((error) => showError(error.message)));
     el.listenBtn.addEventListener('click', () => postUIState({ isListening: !state.isListening }).catch((error) => showError(error.message)));
-    el.channelFilter.addEventListener('change', () => { const selectedTextChannel = el.channelFilter.value; const url = new URL(location.href); if (selectedTextChannel) url.searchParams.set('channel', selectedTextChannel); else url.searchParams.delete('channel'); if (el.guildSelect.value) url.searchParams.set('guild', el.guildSelect.value); history.replaceState({}, '', url); postUIState({ selectedTextChannel }).catch((error) => showError(error.message)); });
+    el.channelFilter.addEventListener('change', () => { const selectedTextChannel = el.channelFilter.value; const url = new URL(location.href); if (selectedTextChannel) url.searchParams.set('channel', selectedTextChannel); else url.searchParams.delete('channel'); if (el.textGuildSelect.value) url.searchParams.set('guild', el.textGuildSelect.value); history.replaceState({}, '', url); postUIState({ selectedTextChannel }).catch((error) => showError(error.message)); });
 
     connectWebSocket();
     apiRequest('/api/ui-state').then(applyServerState).then(() => loadGuilds()).then(refreshStatus).catch((error) => showError(error.message));

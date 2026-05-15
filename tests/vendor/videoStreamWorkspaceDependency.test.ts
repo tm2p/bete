@@ -13,8 +13,8 @@ describe("Discord video stream workspace dependencies", () => {
     expect(videoStreamPackage.devDependencies?.["discord.js-selfbot-v13"]).toBe(
       "workspace:*",
     );
-    expect(videoStreamPackage.peerDependencies?.["discord.js-selfbot-v13"]).toBe(
-      "^3.6.0",
-    );
+    expect(
+      videoStreamPackage.peerDependencies?.["discord.js-selfbot-v13"],
+    ).toBe("^3.6.0");
   });
 });

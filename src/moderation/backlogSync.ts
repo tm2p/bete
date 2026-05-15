@@ -54,17 +54,23 @@ async function syncChannelMessages(
 }
 
 export async function syncBacklogMessages(client: Client): Promise<void> {
-  if (!config.MONITOR_GUILD_ID) {
-    logger.warn("MONITOR_GUILD_ID not configured, skipping backlog sync");
+  const textGuildId = config.EFFECTIVE_TEXT_GUILD_ID;
+  if (!textGuildId) {
+    logger.warn("TEXT_GUILD_ID not configured, skipping backlog sync");
     return;
   }
 
-  const guild = client.guilds.cache.get(config.MONITOR_GUILD_ID);
+  const guild = client.guilds.cache.get(textGuildId);
   if (!guild) {
     logger.warn(
-      { guildId: config.MONITOR_GUILD_ID },
-      "Monitor guild not found, skipping backlog sync",
+      { guildId: textGuildId },
+      "Text guild not found, skipping backlog sync",
     );
+    return;
+  }
+
+  if (config.TEXT_CHANNEL_ID) {
+    await syncSelectedChannelBacklog(client, guild.id, config.TEXT_CHANNEL_ID);
     return;
   }
 

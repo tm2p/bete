@@ -128,7 +128,7 @@ export function createVoiceRoutes(
       // Update UI state and broadcast to connected clients
       if (patchSharedUIState && broadcaster) {
         const updatedState = patchSharedUIState({
-          selectedGuild: guildId,
+          selectedVoiceGuild: guildId,
           selectedVoiceChannel: channelId,
         });
         broadcaster.uiState(updatedState);
@@ -150,7 +150,7 @@ export function createVoiceRoutes(
       // Update UI state and broadcast to connected clients
       if (patchSharedUIState && broadcaster) {
         const updatedState = patchSharedUIState({
-          selectedGuild: "",
+          selectedVoiceGuild: "",
           selectedVoiceChannel: "",
         });
         broadcaster.uiState(updatedState);

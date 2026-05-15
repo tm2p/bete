@@ -37,17 +37,23 @@ type VoiceGlobals = typeof globalThis & {
 };
 
 interface SharedUIState {
-  selectedGuild: string;
+  selectedVoiceGuild: string;
   selectedVoiceChannel: string;
+  selectedTextGuild: string;
   selectedTextChannel: string;
   activeTab: "voice" | "text";
   isListening: boolean;
   isStreaming: boolean;
 }
 
+type SharedUIStatePatch = Partial<SharedUIState> & {
+  selectedGuild?: string;
+};
+
 const defaultSharedUIState: SharedUIState = {
-  selectedGuild: "",
+  selectedVoiceGuild: "",
   selectedVoiceChannel: "",
+  selectedTextGuild: "",
   selectedTextChannel: "",
   activeTab: "voice",
   isListening: false,
@@ -56,20 +62,44 @@ const defaultSharedUIState: SharedUIState = {
 
 let sharedUIState: SharedUIState = { ...defaultSharedUIState };
 
+export function normalizeSharedUIState(
+  value: SharedUIStatePatch,
+): SharedUIState {
+  const legacyGuild = value.selectedGuild ?? "";
+  return {
+    selectedVoiceGuild: value.selectedVoiceGuild ?? legacyGuild,
+    selectedVoiceChannel: value.selectedVoiceChannel ?? "",
+    selectedTextGuild: value.selectedTextGuild ?? legacyGuild,
+    selectedTextChannel: value.selectedTextChannel ?? "",
+    activeTab: value.activeTab === "text" ? "text" : "voice",
+    isListening: value.isListening ?? false,
+    isStreaming: value.isStreaming ?? false,
+  };
+}
+
 async function initializeSharedUIState() {
-  sharedUIState = await getPersistedValue("web-ui-state", defaultSharedUIState);
+  sharedUIState = normalizeSharedUIState(
+    await getPersistedValue("web-ui-state", defaultSharedUIState),
+  );
 }
 
 function getSharedUIState(): SharedUIState {
   return { ...sharedUIState };
 }
 
-function patchSharedUIState(patch: Partial<SharedUIState>) {
+function patchSharedUIState(patch: SharedUIStatePatch) {
   if (typeof patch.selectedGuild === "string") {
-    sharedUIState.selectedGuild = patch.selectedGuild;
+    sharedUIState.selectedVoiceGuild = patch.selectedGuild;
+    sharedUIState.selectedTextGuild = patch.selectedGuild;
+  }
+  if (typeof patch.selectedVoiceGuild === "string") {
+    sharedUIState.selectedVoiceGuild = patch.selectedVoiceGuild;
   }
   if (typeof patch.selectedVoiceChannel === "string") {
     sharedUIState.selectedVoiceChannel = patch.selectedVoiceChannel;
+  }
+  if (typeof patch.selectedTextGuild === "string") {
+    sharedUIState.selectedTextGuild = patch.selectedTextGuild;
   }
   if (typeof patch.selectedTextChannel === "string") {
     sharedUIState.selectedTextChannel = patch.selectedTextChannel;

@@ -30,6 +30,32 @@ function getModerationBroadcaster(): ModerationBroadcaster | undefined {
   return (globalThis as ModerationGlobal).moderationBroadcaster;
 }
 
+export interface TextCaptureTarget {
+  guildId?: string;
+  channelId?: string;
+}
+
+export interface MessageLocationInput {
+  guildId?: string | null;
+  channelId?: string | null;
+}
+
+export function shouldCaptureMessageLocation(
+  message: MessageLocationInput,
+  target: TextCaptureTarget,
+): boolean {
+  if (!message.guildId || message.guildId !== target.guildId) return false;
+  if (target.channelId && message.channelId !== target.channelId) return false;
+  return true;
+}
+
+function getTextCaptureTarget(): TextCaptureTarget {
+  return {
+    guildId: config.EFFECTIVE_TEXT_GUILD_ID,
+    channelId: config.TEXT_CHANNEL_ID,
+  };
+}
+
 export async function captureMessage(
   message: Message,
   type: "text" | "edited" | "deleted",
@@ -110,7 +136,7 @@ export async function captureMessage(
 
 export function registerMessageCapture(client: Client): void {
   client.on("messageCreate", async (message) => {
-    if (!message.guildId || message.guildId !== config.MONITOR_GUILD_ID) return;
+    if (!shouldCaptureMessageLocation(message, getTextCaptureTarget())) return;
     if (message.author?.bot) return;
 
     try {
@@ -127,7 +153,7 @@ export function registerMessageCapture(client: Client): void {
   });
 
   client.on("messageUpdate", async (_oldMessage, newMessage) => {
-    if (!newMessage.guildId || newMessage.guildId !== config.MONITOR_GUILD_ID)
+    if (!shouldCaptureMessageLocation(newMessage, getTextCaptureTarget()))
       return;
     if (newMessage.author?.bot) return;
 
@@ -166,7 +192,7 @@ export function registerMessageCapture(client: Client): void {
   });
 
   client.on("messageDelete", async (message) => {
-    if (!message.guildId || message.guildId !== config.MONITOR_GUILD_ID) return;
+    if (!shouldCaptureMessageLocation(message, getTextCaptureTarget())) return;
     if (!message.author) return;
 
     try {
