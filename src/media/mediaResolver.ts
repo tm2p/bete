@@ -11,18 +11,14 @@ export async function resolveMediaSource(
     throw new AppError("Media source is required", "MISSING_MEDIA_SOURCE", 400);
   }
 
-  if (source.startsWith("http://") || source.startsWith("https://")) {
-    return {
-      source,
-      title: titleFromUrl(source),
-      kind: "url",
-    };
-  }
+  const urlSource = resolveUrlSource(source);
+  if (urlSource) return urlSource;
 
-  if (existsSync(source) && statSync(source).isFile()) {
+  const localPath = path.resolve(source);
+  if (existsSync(localPath) && statSync(localPath).isFile()) {
     return {
-      source,
-      title: path.basename(source),
+      source: localPath,
+      title: path.basename(localPath),
       kind: "local",
     };
   }
@@ -34,8 +30,24 @@ export async function resolveMediaSource(
   );
 }
 
-function titleFromUrl(source: string): string {
-  const url = new URL(source);
+function resolveUrlSource(source: string): ResolvedMediaSource | null {
+  let url: URL;
+  try {
+    url = new URL(source);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+
+  return {
+    source,
+    title: titleFromUrl(url),
+    kind: "url",
+  };
+}
+
+function titleFromUrl(url: URL): string {
   const filename = decodeURIComponent(url.pathname.split("/").pop() || "");
-  return filename || url.hostname;
+  return path.basename(filename) || url.hostname;
 }

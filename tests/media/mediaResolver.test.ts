@@ -33,8 +33,31 @@ describe("resolveMediaSource", () => {
     } satisfies Partial<AppError>);
   });
 
+  it("sanitizes URL titles", async () => {
+    await expect(
+      resolveMediaSource("https://example.com/%2e%2e%2fsecret.mp3"),
+    ).resolves.toMatchObject({
+      title: "secret.mp3",
+      kind: "url",
+    });
+  });
+
   it("rejects unsupported sources", async () => {
     await expect(resolveMediaSource("not a url or file")).rejects.toMatchObject({
+      code: "UNSUPPORTED_MEDIA_SOURCE",
+      statusCode: 400,
+    } satisfies Partial<AppError>);
+  });
+
+  it("rejects non-http URL sources", async () => {
+    await expect(resolveMediaSource("file:///tmp/song.mp3")).rejects.toMatchObject({
+      code: "UNSUPPORTED_MEDIA_SOURCE",
+      statusCode: 400,
+    } satisfies Partial<AppError>);
+  });
+
+  it("rejects malformed http URLs as unsupported sources", async () => {
+    await expect(resolveMediaSource("https://[invalid")).rejects.toMatchObject({
       code: "UNSUPPORTED_MEDIA_SOURCE",
       statusCode: 400,
     } satisfies Partial<AppError>);
