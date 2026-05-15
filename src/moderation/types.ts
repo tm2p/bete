@@ -92,6 +92,27 @@ export interface AnalysisResult {
   analysis: string;
 }
 
+export type MediaMode = "music" | "screen";
+export type MediaSourceKind = "url" | "local";
+export type MediaQueueItemStatus = "queued" | "playing" | "failed";
+
+export interface MediaQueueItem {
+  id: string;
+  mode: MediaMode;
+  source: string;
+  title: string;
+  kind: MediaSourceKind;
+  requestedBy: string;
+  addedAt: number;
+  status: MediaQueueItemStatus;
+}
+
+export interface MediaState {
+  playing: boolean;
+  current: MediaQueueItem | null;
+  queue: MediaQueueItem[];
+}
+
 export type ModerationWsEvent =
   | { type: "ui_state"; state: unknown }
   | { type: "user_state"; users: unknown[] }
@@ -100,7 +121,8 @@ export type ModerationWsEvent =
   | { type: "message_deleted"; data: { id: string; deleted_at: number } }
   | { type: "message_analyzed"; data: MessageRecord }
   | { type: "attachment_created"; data: AttachmentRecord }
-  | { type: "analysis_queue_status"; data: AnalysisQueueStatus };
+  | { type: "analysis_queue_status"; data: AnalysisQueueStatus }
+  | { type: "media_state"; state: MediaState };
 
 export interface AnalysisQueueStatus {
   queuedConversations: number;

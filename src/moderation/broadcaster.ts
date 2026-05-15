@@ -3,6 +3,7 @@ import { createChildLogger } from "../logger";
 import type {
   AnalysisQueueStatus,
   AttachmentRecord,
+  MediaState,
   MessageRecord,
   ModerationWsEvent,
 } from "./types";
@@ -71,6 +72,9 @@ export function createBroadcaster() {
     },
     analysisQueueStatus(data: AnalysisQueueStatus) {
       sendJson(clients, { type: "analysis_queue_status", data });
+    },
+    mediaState(state: MediaState) {
+      sendJson(clients, { type: "media_state", state });
     },
   };
 }

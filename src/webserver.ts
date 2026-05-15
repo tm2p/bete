@@ -14,10 +14,12 @@ import type { ModerationBroadcaster } from "./moderation/types";
 import { getPersistedValue, setPersistedValue } from "./muxer-queue";
 import { discordPlayer } from "./player";
 import { createAnalysisRoutes } from "./routes/analysisRoutes";
+import { createMediaRoutes } from "./routes/mediaRoutes";
 import { createMessageRoutes } from "./routes/messageRoutes";
 import { createSyncRoutes } from "./routes/syncRoutes";
 import { createUIStateRoutes } from "./routes/uiStateRoutes";
 import { createVoiceRoutes } from "./routes/voiceRoutes";
+import { MediaController } from "./media/mediaController";
 import type { VoiceController } from "./voiceController";
 
 const wsLogger = createChildLogger("webserver");
@@ -160,6 +162,12 @@ export async function startWebserver(
   const broadcaster = createBroadcaster();
   (globalThis as VoiceGlobals).moderationBroadcaster = broadcaster;
 
+  const mediaController = new MediaController({
+    isVoiceConnected: () => voiceController.getStatus().connected,
+    isBrowserStreaming: () => sharedUIState.isStreaming,
+    onStateChange: (state) => broadcaster.mediaState(state),
+  });
+
   // Security headers. CSP disabled because the current static UI uses inline scripts/styles.
   app.use(
     helmet({
@@ -234,6 +242,7 @@ export async function startWebserver(
   app.use("/api", createMessageRoutes());
   app.use("/api", createAnalysisRoutes());
   app.use("/api", createSyncRoutes(_client));
+  app.use("/api", createMediaRoutes(mediaController));
 
   // Inbound: Discord PCM → tagged chunks → browser
   (globalThis as VoiceGlobals).broadcastPcmToWeb = (
@@ -369,6 +378,7 @@ export async function startWebserver(
       }),
     );
     ws.send(JSON.stringify({ type: "ui_state", state: getSharedUIState() }));
+    ws.send(JSON.stringify({ type: "media_state", state: mediaController.getState() }));
 
     ws.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
       if (!Buffer.isBuffer(data)) return;
