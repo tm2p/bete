@@ -20,10 +20,14 @@ export interface MediaControllerDependencies {
 
 export class MediaController {
   private readonly queueStore = new MediaQueue();
+  private readonly musicPlayer: MusicPlayer;
   private playback: MusicPlayback | null = null;
+  private playbackToken = 0;
   private skipInProgress = false;
 
-  constructor(private readonly dependencies: MediaControllerDependencies = {}) {}
+  constructor(private readonly dependencies: MediaControllerDependencies = {}) {
+    this.musicPlayer = dependencies.musicPlayer ?? createMusicPlayer();
+  }
 
   getState(): MediaState {
     const snapshot = this.queueStore.snapshot();
@@ -50,6 +54,7 @@ export class MediaController {
 
     this.skipInProgress = true;
     try {
+      this.playbackToken++;
       this.playback?.stop();
       this.playback = null;
       this.queueStore.completeCurrent();
@@ -61,6 +66,7 @@ export class MediaController {
   }
 
   async stop(): Promise<MediaState> {
+    this.playbackToken++;
     this.playback?.stop();
     this.playback = null;
     this.queueStore.clear();
@@ -92,15 +98,25 @@ export class MediaController {
     const item = this.queueStore.startNext();
     if (!item) return;
 
-    const player = this.dependencies.musicPlayer ?? createMusicPlayer();
-    this.playback = player.play(item);
+    const token = ++this.playbackToken;
+    try {
+      this.playback = this.musicPlayer.play(item);
+    } catch {
+      this.queueStore.failCurrent();
+      this.playback = null;
+      this.startNextIfIdle();
+      this.emitState();
+      return;
+    }
+
     this.playback.done.then(
-      () => this.finishCurrent(false),
-      () => this.finishCurrent(true),
+      () => this.finishCurrent(token, false),
+      () => this.finishCurrent(token, true),
     );
   }
 
-  private finishCurrent(failed: boolean): void {
+  private finishCurrent(token: number, failed: boolean): void {
+    if (token !== this.playbackToken) return;
     this.playback = null;
     if (failed) {
       this.queueStore.failCurrent();

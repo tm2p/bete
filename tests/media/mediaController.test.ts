@@ -112,6 +112,58 @@ describe("MediaController", () => {
     expect(state.current?.title).toBe("second.mp3");
   });
 
+  it("ignores stale completion after skip starts the next item", async () => {
+    const first = deferred();
+    const second = deferred();
+    const third = deferred();
+    const musicPlayer: MusicPlayer = {
+      play: vi
+        .fn()
+        .mockReturnValueOnce({ done: first.promise, stop: vi.fn() })
+        .mockReturnValueOnce({ done: second.promise, stop: vi.fn() })
+        .mockReturnValueOnce({ done: third.promise, stop: vi.fn() }),
+    };
+    const controller = new MediaController({
+      isVoiceConnected: () => true,
+      isBrowserStreaming: () => false,
+      resolveMediaSource: async (input) => source(input),
+      musicPlayer,
+    });
+    await controller.queue("https://example.com/first.mp3");
+    await controller.queue("https://example.com/second.mp3");
+    await controller.queue("https://example.com/third.mp3");
+
+    await controller.skip();
+    first.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(controller.getState().current?.title).toBe("second.mp3");
+    expect(musicPlayer.play).toHaveBeenCalledTimes(2);
+  });
+
+  it("advances when player throws while starting an item", async () => {
+    const second = deferred();
+    const musicPlayer: MusicPlayer = {
+      play: vi
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error("not connected");
+        })
+        .mockReturnValueOnce({ done: second.promise, stop: vi.fn() }),
+    };
+    const controller = new MediaController({
+      isVoiceConnected: () => true,
+      isBrowserStreaming: () => false,
+      resolveMediaSource: async (input) => source(input),
+      musicPlayer,
+    });
+
+    await controller.queue("https://example.com/first.mp3");
+    await controller.queue("https://example.com/second.mp3");
+
+    expect(controller.getState().current?.title).toBe("second.mp3");
+  });
+
   it("stops current playback and clears the queue", async () => {
     const stop = vi.fn();
     const controller = new MediaController({
