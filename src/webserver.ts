@@ -211,8 +211,6 @@ export async function startWebserver(
   const screenController = createScreenShareController({
     getVoiceStatus: () => voiceController.getStatus(),
     streamer,
-    joinVoice: (guildId: string, channelId: string) =>
-      streamer.joinVoice(guildId, channelId),
   });
 
   const mediaController = new MediaController({

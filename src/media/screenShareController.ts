@@ -1,10 +1,6 @@
-import type { Readable } from "node:stream";
 import {
-  playStream as defaultPlayStream,
-  prepareStream as defaultPrepareStream,
-  Encoders,
   Streamer,
-  Utils,
+  playPreparedStream,
 } from "../streaming";
 import { AppError } from "../errors";
 import { createChildLogger } from "../logger";
@@ -21,30 +17,11 @@ export interface ScreenShareVoiceStatus {
   activeChannelId: string | null;
 }
 
-interface PreparedScreenStream {
-  command: { kill?: (signal: NodeJS.Signals) => unknown };
-  output: Readable;
-}
-
-type PrepareScreenStream = (
-  source: string,
-  options: object,
-) => PreparedScreenStream;
-
-type PlayScreenStream = (
-  output: Readable,
-  streamer: Streamer,
-  options: { type: "go-live" },
-) => Promise<void>;
-
 export interface ScreenShareControllerDependencies {
   getVoiceStatus: () => ScreenShareVoiceStatus;
   getPlayerOwner?: () => DiscordPlayerOwner;
   getDirectVideoUrl?: (source: string) => Promise<string>;
-  prepareStream?: PrepareScreenStream;
-  playStream?: PlayScreenStream;
   streamer: Streamer;
-  joinVoice?: (guildId: string, channelId: string) => Promise<unknown>;
   onStreamStart?: () => void;
   onStreamEnd?: () => void;
 }
@@ -59,10 +36,6 @@ export function createScreenShareController(
   const getDirectVideoUrl =
     dependencies.getDirectVideoUrl ??
     ((source) => ytdlp.getDirectVideoUrl(source));
-  const prepareStream =
-    dependencies.prepareStream ?? (defaultPrepareStream as PrepareScreenStream);
-  const playStream =
-    dependencies.playStream ?? (defaultPlayStream as PlayScreenStream);
 
   return {
     isActive(): boolean {
@@ -76,7 +49,7 @@ export function createScreenShareController(
         active.stop();
       }
 
-      // Ensure bot is in the voice channel via Streamer for video streaming
+      // Ensure bot is in the voice channel and owns the screen-share stream
       if (
         !status.connected ||
         !status.activeGuildId ||
@@ -96,52 +69,32 @@ export function createScreenShareController(
       }
 
       try {
-        // Join voice via Streamer if not already connected for streaming
-        if (dependencies.joinVoice) {
-          logger.info("Joining voice channel for screen share via Streamer");
-          await dependencies.joinVoice(
-            status.activeGuildId,
-            status.activeChannelId,
-          );
-          logger.info("Voice channel joined via Streamer for screen share");
-        }
-
         const directUrl = await getDirectVideoUrl(source);
-        const { command, output } = prepareStream(directUrl, {
-          encoder: Encoders.software({ x264: { preset: "superfast" } }),
-          height: 720,
-          frameRate: 30,
-          bitrateVideo: 2500,
-          bitrateVideoMax: 4000,
-          includeAudio: true,
-          videoCodec: Utils.normalizeVideoCodec("H264"),
-        });
-
-        // Add FFmpeg error logging
-        if (command && "stderr" in command && (command as any).stderr) {
-          (command as any).stderr.on("data", (data: Buffer) => {
-            if (data.toString().includes("Error")) {
-              logger.error({ error: data.toString() }, "FFmpeg Screen Error");
-            }
-          });
-        }
+        const session = await dependencies.streamer.createSession(
+          status.activeGuildId,
+          status.activeChannelId,
+        );
 
         dependencies.onStreamStart?.();
 
         let stopped = false;
-        const done = playStream(output, dependencies.streamer, {
-          type: "go-live",
+        const done = playPreparedStream(directUrl, session, {
+          fps: 30,
+          bitrate: 2500,
+          includeAudio: true,
+          presetH26x: "superfast",
         }).finally(() => {
           active = null;
           dependencies.onStreamEnd?.();
         });
+        done.catch(() => undefined);
 
         active = {
           done,
           stop() {
             if (stopped) return;
             stopped = true;
-            command.kill?.("SIGTERM");
+            session.stop();
             active = null;
           },
         };

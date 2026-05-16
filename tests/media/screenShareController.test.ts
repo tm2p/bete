@@ -1,11 +1,13 @@
-import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../../src/errors";
 import type { DiscordPlayerOwner } from "../../src/media/mediaTypes";
 import { createScreenShareController } from "../../src/media/screenShareController";
 
 function createDependencies() {
-  const output = new PassThrough();
+  const session = {
+    play: vi.fn(() => new Promise<void>(() => {})),
+    stop: vi.fn(),
+  };
   return {
     getVoiceStatus: vi.fn(() => ({
       connected: true,
@@ -14,12 +16,11 @@ function createDependencies() {
     })),
     getPlayerOwner: vi.fn((): DiscordPlayerOwner => "none"),
     getDirectVideoUrl: vi.fn(async () => "https://cdn.example.com/video.mp4"),
-    prepareStream: vi.fn(() => ({
-      command: { kill: vi.fn() },
-      output,
-    })),
-    playStream: vi.fn(() => new Promise<void>(() => {})),
-    streamer: { id: "streamer" },
+    streamer: {
+      createSession: vi.fn(async () => session),
+      client: {},
+    },
+    session,
   };
 }
 
@@ -33,14 +34,17 @@ describe("createScreenShareController", () => {
     expect(dependencies.getDirectVideoUrl).toHaveBeenCalledWith(
       "https://youtu.be/video",
     );
-    expect(dependencies.prepareStream).toHaveBeenCalledWith(
-      "https://cdn.example.com/video.mp4",
-      expect.objectContaining({ includeAudio: true }),
+    expect(dependencies.streamer.createSession).toHaveBeenCalledWith(
+      "guild-1",
+      "channel-1",
     );
-    expect(dependencies.playStream).toHaveBeenCalledWith(
-      dependencies.prepareStream.mock.results[0].value.output,
-      dependencies.streamer,
-      { type: "go-live" },
+    expect(dependencies.session.play).toHaveBeenCalledWith(
+      "https://cdn.example.com/video.mp4",
+      expect.objectContaining({
+        includeAudio: true,
+        fps: 30,
+        bitrate: 2500,
+      }),
     );
     expect(controller.isActive()).toBe(true);
     playback.stop();
@@ -79,16 +83,13 @@ describe("createScreenShareController", () => {
 
   it("wraps stream startup failures", async () => {
     const dependencies = createDependencies();
-    dependencies.playStream.mockImplementation(() => {
+    dependencies.session.play.mockImplementation(() => {
       throw new Error("go live failed");
     });
     const controller = createScreenShareController(dependencies);
 
-    await expect(
-      controller.start("https://youtu.be/video"),
-    ).rejects.toMatchObject({
-      code: "SCREEN_STREAM_FAILED",
-      statusCode: 500,
-    } satisfies Partial<AppError>);
+    const playback = await controller.start("https://youtu.be/video");
+
+    await expect(playback.done).rejects.toThrow("go live failed");
   });
 });
