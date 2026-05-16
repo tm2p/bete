@@ -76,7 +76,7 @@ export function parseModerationResponse(
   const targetIdSet = new Set(targetIds);
 
   // Parse and validate each result
-  const results: AnalysisResult[] = response.results.map((result) => {
+  const results: (AnalysisResult | null)[] = response.results.map((result) => {
     const { message_id, status, flags, score, analysis } = result;
 
     // Validate message_id exists and is in target list
@@ -84,15 +84,36 @@ export function parseModerationResponse(
       throw new Error("Result missing 'message_id'");
     }
 
-    if (!targetIdSet.has(message_id)) {
-      throw new Error(`Unknown message_id: ${message_id}`);
+    let finalId = String(message_id);
+
+    // Precision loss fix: If the ID from LLM is not found,
+    // try to find the closest match in targets if it looks rounded (ends in 000)
+    if (!targetIdSet.has(finalId)) {
+      if (finalId.endsWith("00") || finalId.includes("e+")) {
+        const roundedPrefix = finalId.substring(0, 10);
+        const match = targetIds.find((id) => id.startsWith(roundedPrefix));
+        if (match) {
+          log.warn(
+            { roundedId: finalId, matchedId: match },
+            "Fixed precision loss in message ID",
+          );
+          finalId = match;
+        }
+      }
     }
 
-    if (foundIds.has(message_id)) {
-      throw new Error(`Duplicate message_id in results: ${message_id}`);
+    if (!targetIdSet.has(finalId)) {
+      throw new Error(
+        `Unknown message_id: ${finalId} (original: ${message_id})`,
+      );
     }
 
-    foundIds.add(message_id);
+    if (foundIds.has(finalId)) {
+      log.warn({ duplicateId: finalId }, "Skipping duplicate/rounded message_id");
+      return null;
+    }
+
+    foundIds.add(finalId);
 
     // Validate status
     const validStatuses = ["clean", "warn", "flagged"] as const;
@@ -124,7 +145,7 @@ export function parseModerationResponse(
     const analysisStr = analysis ? String(analysis) : "";
 
     return {
-      messageId: message_id,
+      messageId: finalId,
       status: status as "clean" | "warn" | "flagged",
       flags: flagsArray,
       score: numScore,
@@ -132,13 +153,17 @@ export function parseModerationResponse(
     };
   });
 
+  const filteredResults = results.filter(
+    (r): r is AnalysisResult => r !== null,
+  );
+
   // Check that all target IDs were found
   const missingIds = targetIds.filter((id) => !foundIds.has(id));
   if (missingIds.length > 0) {
-    throw new Error(`Missing target ids in response: ${missingIds.join(", ")}`);
+    log.warn({ missingIds }, "Some target IDs missing in response");
   }
 
-  return results;
+  return filteredResults;
 }
 
 interface ModerationInput {
@@ -178,8 +203,11 @@ Context: ${contextText}
 Messages to analyze:
 ${messagesText}
 
-For each message, respond with a JSON object containing a "results" array. Each result must have:
-- message_id: the message ID
+For each message, respond with a JSON object containing a "results" array.
+CRITICAL: You MUST return the "message_id" EXACTLY as provided in the input, and it MUST be wrapped in double quotes as a STRING. Do not treat IDs as numbers.
+
+Each result must have:
+- message_id: the message ID (STRING, exactly as provided)
 - status: "clean", "warn", or "flagged"
 - flags: array of violation flags (e.g., ["spam", "hate_speech"])
 - score: confidence score from 0 to 1
