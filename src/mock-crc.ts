@@ -1,3 +1,6 @@
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+
 // Mock node-crc to provide pure JS implementation and bypass native build issues
 const CRC_TABLE = new Uint32Array(256);
 for (let i = 0; i < 256; i++) {
@@ -39,4 +42,5 @@ Module.prototype.require = function (id: string) {
   return originalRequire.apply(this, arguments);
 };
 
-console.log("[mock] node-crc has been mocked globally.");
+console.log("[mock] node-crc has been mocked globally for ESM.");
+export {};
