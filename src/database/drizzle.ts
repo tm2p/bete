@@ -19,7 +19,6 @@ let db:
  */
 export async function initializeDatabase() {
   if (db !== null) {
-    logger.debug("Database already initialized, skipping");
     return db;
   }
 
