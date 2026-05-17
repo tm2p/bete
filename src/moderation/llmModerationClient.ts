@@ -18,6 +18,55 @@ interface RawModerationResponse {
 }
 
 /**
+ * Helper to extract a JSON object from a potentially conversational or markdown-wrapped string.
+ * It first scans for markdown json code blocks, then falls back to trying all start/end brace pairs from largest to smallest.
+ */
+export function extractJson(content: string): any {
+  // 1. Try to find markdown json code blocks: ```json ... ``` or ``` ... ```
+  const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
+  const matches = content.matchAll(codeBlockRegex);
+  for (const match of matches) {
+    const codeContent = match[1].trim();
+    try {
+      const parsed = JSON.parse(codeContent);
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch (e) {
+      // Continue to next code block
+    }
+  }
+
+  // 2. If no code blocks parse successfully, try scanning for {...} pairs
+  const openBraces: number[] = [];
+  const closeBraces: number[] = [];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === "{") openBraces.push(i);
+    if (content[i] === "}") closeBraces.push(i);
+  }
+
+  // Try pairs from largest span to smallest
+  for (const start of openBraces) {
+    for (let j = closeBraces.length - 1; j >= 0; j--) {
+      const end = closeBraces[j];
+      if (end > start) {
+        const candidate = content.substring(start, end + 1);
+        try {
+          const parsed = JSON.parse(candidate);
+          if (parsed && typeof parsed === "object") {
+            return parsed;
+          }
+        } catch (e) {
+          // ignore and try next
+        }
+      }
+    }
+  }
+
+  throw new Error("No JSON object found in response");
+}
+
+/**
  * Parses LLM moderation response and validates against target IDs.
  * Extracts JSON from surrounding text, validates structure, and transforms to AnalysisResult[].
  * Scans from first '{' and attempts JSON.parse at each candidate closing brace.
@@ -26,44 +75,8 @@ export function parseModerationResponse(
   content: string,
   targetIds: string[],
 ): AnalysisResult[] {
-  // Find first opening brace and last closing brace
-  const startIdx = content.indexOf("{");
-  const endIdx = content.lastIndexOf("}");
-
-  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
-    throw new Error("No JSON object found in response");
-  }
-
-  // Attempt to parse the largest possible JSON object
-  let parsed: unknown;
-  const candidate = content.substring(startIdx, endIdx + 1);
-
-  try {
-    parsed = JSON.parse(candidate);
-  } catch (error) {
-    // If full substring fails, try scanning backwards from the last }
-    let lastError: Error =
-      error instanceof Error ? error : new Error(String(error));
-
-    for (let i = endIdx - 1; i > startIdx; i--) {
-      if (content[i] === "}") {
-        try {
-          parsed = JSON.parse(content.substring(startIdx, i + 1));
-          break;
-        } catch (innerError) {
-          lastError =
-            innerError instanceof Error
-              ? innerError
-              : new Error(String(innerError));
-          continue;
-        }
-      }
-    }
-
-    if (!parsed) {
-      throw new Error(`Failed to parse JSON: ${lastError.message}`);
-    }
-  }
+  // Extract and parse JSON object
+  const parsed = extractJson(content);
 
   // Validate structure
   if (!parsed || typeof parsed !== "object" || !("results" in parsed)) {
@@ -222,10 +235,21 @@ Each result must have:
 Return ONLY valid JSON, no other text.`;
 
   // Check for image attachments to support multimodal analysis
-  const imageAttachments = (attachments || []).filter(
-    (att) =>
-      (att.uploaded_url || att.discord_url) && att.type.startsWith("image/"),
-  );
+  const targetIdSet = new Set(targets.map((t) => t.id));
+  const imageAttachments = (attachments || [])
+    .filter(
+      (att) =>
+        (att.uploaded_url || att.discord_url) && att.type.startsWith("image/"),
+    )
+    .sort((a, b) => {
+      const aIsTarget = targetIdSet.has(a.message_id) ? 1 : 0;
+      const bIsTarget = targetIdSet.has(b.message_id) ? 1 : 0;
+      if (aIsTarget !== bIsTarget) {
+        return bIsTarget - aIsTarget; // Target messages first
+      }
+      return b.created_at - a.created_at; // Most recent first
+    })
+    .slice(0, 8); // Cap at 8 to prevent LLM API limits (e.g. Nemotron/Omni models 8-image limit)
 
   let messageContent:
     | string
