@@ -213,8 +213,10 @@ export async function startWebserver(
     getVoiceStatus: () => voiceController.getStatus(),
     streamer,
     useTranscoder: true,
-    onBeforeStreamStart: async () => {
+    onBeforeStreamStart: async (guildId: string, channelId: string) => {
       await voiceController.disconnect();
+      // Wait for Discord gateway to fully process the disconnect
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     },
     onAfterStreamEnd: async (guildId: string, channelId: string) => {
       const current = voiceController.getStatus();
