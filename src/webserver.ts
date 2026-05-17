@@ -44,6 +44,7 @@ const activeUsers = new Map<
 type VoiceGlobals = typeof globalThis & {
   moderationBroadcaster?: ModerationBroadcaster;
   broadcastPcmToWeb?: (chunk: Buffer, userId: string) => void;
+  broadcastVideoToWeb?: (chunk: Buffer) => void;
   updateActiveUser?: (
     userId: string,
     data: { username: string; avatar: string; speaking: boolean },
@@ -211,6 +212,15 @@ export async function startWebserver(
   const screenController = createScreenShareController({
     getVoiceStatus: () => voiceController.getStatus(),
     streamer,
+    useTranscoder: true,
+    onBeforeStreamStart: async () => {
+      await voiceController.disconnect();
+    },
+    onAfterStreamEnd: async (guildId: string, channelId: string) => {
+      const current = voiceController.getStatus();
+      if (current.connected && current.activeGuildId === guildId) return;
+      await voiceController.connect(guildId, channelId);
+    },
   });
 
   const mediaController = new MediaController({
@@ -335,6 +345,19 @@ export async function startWebserver(
     const packet = Buffer.concat([header, chunk]);
     for (const client of broadcaster.getClients()) {
       if (client.readyState === 1) client.send(packet);
+    }
+  };
+
+  // Outbound: server video stream (matroska chunks) -> browser clients
+  (globalThis as VoiceGlobals).broadcastVideoToWeb = (chunk: Buffer) => {
+    for (const client of broadcaster.getClients()) {
+      if (client.readyState === 1) {
+        try {
+          client.send(chunk);
+        } catch (err) {
+          wsLogger.warn({ err }, "Failed to send video chunk");
+        }
+      }
     }
   };
 

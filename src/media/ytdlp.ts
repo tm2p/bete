@@ -61,7 +61,7 @@ export function createYtDlp(dependencies: YtDlpDependencies = {}): YtDlpClient {
         "--no-warnings",
         "--quiet",
       ]);
-      return value.trim().split("\n")[0] || url;
+      return value.trim();
     },
   };
 }

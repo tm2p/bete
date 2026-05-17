@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { Readable } from "node:stream";
+import type { ChildProcess } from "node:child_process";
+import { prepareTranscoder, TranscoderOptions } from "./transcoder";
 import type { Client } from "discord.js-selfbot-v13";
 
 type VoiceConnectionLike = {
@@ -53,9 +54,19 @@ export class Streamer {
   }
 
   async joinVoice(guildId: string, channelId: string): Promise<VoiceConnectionLike> {
-    const channel = (this.client.channels.resolve(channelId) ?? this.client.channels.cache.get(channelId)) as any;
+    const guild = this.client.guilds.cache.get(guildId);
+    const channel = (guild?.channels.cache.get(channelId) ??
+      (await guild?.channels.fetch(channelId).catch(() => null))) as any;
     if (!channel || channel.guild?.id !== guildId) {
       throw new Error("VOICE_CHANNEL_NOT_FOUND");
+    }
+
+    const existingConnection = (this.client.voice as any).connection as
+      | VoiceConnectionLike
+      | undefined;
+    if (existingConnection?.channel?.id === channelId) {
+      (existingConnection as any).setVideoCodec?.("H264");
+      return existingConnection;
     }
 
     const voiceConnection = (await this.client.voice.joinChannel(channel as any, {
@@ -64,6 +75,8 @@ export class Streamer {
       selfVideo: false,
       videoCodec: "H264",
     })) as unknown as VoiceConnectionLike;
+
+    (voiceConnection as any).setVideoCodec?.("H264");
 
     return voiceConnection;
   }
@@ -108,15 +121,62 @@ export class Streamer {
       connection,
       stream,
       async play(source: string | Readable, options: StreamPlayOptions = {}) {
-        const videoOptions = {
+        const videoOptions: Record<string, any> = {
           fps: options.fps ?? 30,
           bitrate: options.bitrate ?? 2500,
           presetH26x: options.presetH26x ?? "superfast",
         };
 
-        activeVideo = stream.playVideo(source, videoOptions);
+        const audioOptions: Record<string, any> = {
+          volume: false,
+        };
+
+        let videoSource: string | Readable;
+        let audioSource: string | Readable;
+
+        if (typeof source === "string" && source.includes("\n")) {
+          // yt-dlp returns multiple URLs (e.g., video\n audio\n)
+          const urls = source.split("\n").filter((u) => u.trim());
+          videoSource = urls[0] ?? source;
+          audioSource = urls[1] ?? urls[0] ?? source;
+        } else if (typeof source !== "string") {
+          // If source is a Readable (e.g. ffmpeg stdout) and audio+video
+          // need to be played separately, tee the stream into two PassThroughs.
+          if (options.includeAudio !== false) {
+            const videoTee = new PassThrough();
+            const audioTee = new PassThrough();
+            // Pipe to both tees; allow consumers to read independently.
+            (source as Readable).pipe(videoTee);
+            (source as Readable).pipe(audioTee);
+            videoSource = videoTee;
+            audioSource = audioTee;
+          } else {
+            // audio excluded — single video stream
+            const videoTee = new PassThrough();
+            (source as Readable).pipe(videoTee);
+            videoSource = videoTee;
+            audioSource = videoTee;
+          }
+        } else {
+          videoSource = source;
+          audioSource = source;
+        }
+
+        const inputFFmpegArgs = [
+          "-headers",
+          "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.3\r\nConnection: keep-alive\r\n",
+        ];
+
+        if (typeof videoSource === "string" && videoSource.startsWith("http")) {
+          videoOptions.inputFFmpegArgs = inputFFmpegArgs;
+        }
+        if (typeof audioSource === "string" && audioSource.startsWith("http")) {
+          audioOptions.inputFFmpegArgs = inputFFmpegArgs;
+        }
+
+        activeVideo = stream.playVideo(videoSource, videoOptions);
         if (options.includeAudio !== false) {
-          activeAudio = stream.playAudio(source, { volume: false });
+          activeAudio = stream.playAudio(audioSource, audioOptions);
         }
 
         try {
@@ -131,40 +191,15 @@ export class Streamer {
 }
 
 export function prepareStream(source: string, _options: any): {
-  command: ReturnType<typeof spawn> | { kill?: (signal: NodeJS.Signals) => unknown };
+  command: ChildProcess | { kill?: (signal: NodeJS.Signals) => unknown };
   output: Readable;
 } {
-  // Spawn ffmpeg to transcode the source into a simple container with
-  // H264 video + Opus audio and pipe to stdout. Options are simplified and
-  // intentionally conservative to keep parity with prior behavior.
-  const args = [
-    "-hide_banner",
-    "-loglevel",
-    "warning",
-    "-i",
-    source,
-    "-c:v",
-    "libx264",
-    "-preset",
-    "superfast",
-    "-r",
-    "30",
-    "-s",
-    "1280x720",
-    "-b:v",
-    "2500k",
-    "-maxrate",
-    "4000k",
-    "-c:a",
-    "libopus",
-    "-f",
-    "matroska",
-    "-",
-  ];
-
-  const command = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-  const output = command.stdout ?? new PassThrough();
-
+  const opts: TranscoderOptions = {
+    fps: _options?.fps ?? 30,
+    bitrate: _options?.bitrate ?? "2500k",
+    preset: _options?.presetH26x ?? _options?.preset ?? "superfast",
+  };
+  const { command, output } = prepareTranscoder(source, opts);
   return { command, output };
 }
 
@@ -197,5 +232,38 @@ export async function playPreparedStream(
   session: StreamSession,
   options: StreamPlayOptions = {},
 ): Promise<void> {
+  // Default behavior: forward resource (string or Readable) to session.play.
+  await session.play(source, options);
+}
+
+export async function playTranscodedPreparedStream(
+  source: string | Readable,
+  session: StreamSession,
+  options: StreamPlayOptions = {},
+): Promise<void> {
+  if (typeof source === "string" && /^(https?:)?\/\//.test(source)) {
+    const { command, output } = prepareStream(source, options);
+    const globalAny: any = globalThis;
+    const onData = (chunk: Buffer) => {
+      try {
+        globalAny.broadcastVideoToWeb?.(chunk);
+      } catch {
+        // ignore errors broadcasting
+      }
+    };
+    output.on("data", onData);
+    try {
+      await session.play(output, options);
+    } finally {
+      output.off("data", onData);
+      try {
+        command.kill?.("SIGKILL");
+      } catch (e) {
+        // ignore
+      }
+    }
+    return;
+  }
+
   await session.play(source, options);
 }

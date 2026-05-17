@@ -73,6 +73,14 @@ async function initializeApp() {
     process.exit(1);
   }
 
+  client.on("debug", (msg) => {
+    if (msg.includes("[VOICE") || msg.includes("[ffmpeg") || msg.toLowerCase().includes("error") || msg.toLowerCase().includes("stream")) {
+      logger.info({ debugMsg: msg }, "Discord Client Debug");
+    } else if (config.VERBOSE) {
+      logger.debug({ debugMsg: msg }, "Discord Client Debug");
+    }
+  });
+
   client.on("ready", async () => {
     logger.info({ user: client.user?.tag }, "Bot logged in");
     registerMessageCapture(client);

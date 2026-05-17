@@ -22,6 +22,9 @@ export interface ScreenShareControllerDependencies {
   getPlayerOwner?: () => DiscordPlayerOwner;
   getDirectVideoUrl?: (source: string) => Promise<string>;
   streamer: Streamer;
+  useTranscoder?: boolean;
+  onBeforeStreamStart?: (guildId: string, channelId: string) => Promise<void> | void;
+  onAfterStreamEnd?: (guildId: string, channelId: string) => Promise<void> | void;
   onStreamStart?: () => void;
   onStreamEnd?: () => void;
 }
@@ -44,6 +47,14 @@ export function createScreenShareController(
 
     async start(source: string): Promise<ScreenSharePlayback> {
       const status = dependencies.getVoiceStatus();
+      let voiceReleased = false;
+      let voiceRestored = false;
+
+      const restoreVoice = async () => {
+        if (voiceRestored || !voiceReleased || !guildId || !channelId) return;
+        voiceRestored = true;
+        await dependencies.onAfterStreamEnd?.(guildId, channelId);
+      };
 
       if (active) {
         active.stop();
@@ -62,6 +73,9 @@ export function createScreenShareController(
         );
       }
 
+      const guildId = status.activeGuildId;
+      const channelId = status.activeChannelId;
+
       // If another media owner (e.g. music) holds the shared player, reject
       const owner = getPlayerOwner();
       if (owner === "music") {
@@ -70,15 +84,28 @@ export function createScreenShareController(
 
       try {
         const directUrl = await getDirectVideoUrl(source);
+        logger.info(
+          {
+            guildId,
+            channelId,
+          },
+          "Creating screen share session",
+        );
+        await dependencies.onBeforeStreamStart?.(guildId, channelId);
+        voiceReleased = true;
         const session = await dependencies.streamer.createSession(
-          status.activeGuildId,
-          status.activeChannelId,
+          guildId,
+          channelId,
         );
 
         dependencies.onStreamStart?.();
 
         let stopped = false;
-        const done = playPreparedStream(directUrl, session, {
+        const playFn = dependencies.useTranscoder
+          ? (await import("../streaming")).playTranscodedPreparedStream
+          : (await import("../streaming")).playPreparedStream;
+
+        const done = playFn(directUrl, session, {
           fps: 30,
           bitrate: 2500,
           includeAudio: true,
@@ -86,8 +113,16 @@ export function createScreenShareController(
         }).finally(() => {
           active = null;
           dependencies.onStreamEnd?.();
+          return restoreVoice();
         });
         done.catch(() => undefined);
+        logger.info(
+          {
+            guildId,
+            channelId,
+          },
+          "Screen share session started",
+        );
 
         active = {
           done,
@@ -96,11 +131,23 @@ export function createScreenShareController(
             stopped = true;
             session.stop();
             active = null;
+            void restoreVoice();
           },
         };
         return active;
       } catch (error) {
         active = null;
+        if (voiceReleased) {
+          await restoreVoice();
+        }
+        logger.error(
+          {
+            error,
+            guildId,
+            channelId,
+          },
+          "Screen share startup failed",
+        );
         throw new AppError(
           error instanceof Error ? error.message : "Screen stream failed",
           "SCREEN_STREAM_FAILED",

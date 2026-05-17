@@ -5,3 +5,4 @@ dist/
 public/app/
 .muxer-queue.**
 .claude/
+.env.test
