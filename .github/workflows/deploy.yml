@@ -47,5 +47,10 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no "$VPS_USERNAME@$VPS_HOST" "
             cd /opt/imphenbot || exit
             echo \"$ENV_FILE\" > .env
-            docker-compose up -d --build
+            # Build and restart containers using available docker compose command
+            if command -v docker-compose &> /dev/null; then
+              docker-compose up -d --build
+            else
+              docker compose up -d --build
+            fi
           "

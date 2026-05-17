@@ -39,7 +39,11 @@ fi
 echo "🔄 Rebuilding and restarting Docker containers..."
 $SSH_CMD << EOF
   cd $REMOTE_DIR
-  docker-compose up -d --build
+  if command -v docker-compose &> /dev/null; then
+    docker-compose up -d --build
+  else
+    docker compose up -d --build
+  fi
 EOF
 
 echo "✅ Deployment complete!"
