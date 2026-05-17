@@ -5,7 +5,10 @@ import {
   getAnalysisQueueStatus,
   queueMessageAnalysis,
 } from "../moderation/aiAnalyzer";
-import { getMessageById } from "../moderation/messageStore";
+import {
+  getMessageById,
+  updateMessageAIAnalysis,
+} from "../moderation/messageStore";
 
 export function createAnalysisRoutes(): Router {
   const router = express.Router();
@@ -34,6 +37,17 @@ export function createAnalysisRoutes(): Router {
       if (!message) {
         throw new AppError("Message not found", "MESSAGE_NOT_FOUND", 404);
       }
+
+      // Reset analysis status to pending so it gets picked up by the analyzer
+      await updateMessageAIAnalysis(id, {
+        status: "pending",
+        flags: null,
+        score: null,
+        raw: null,
+        analysis: null,
+        analyzedAt: null,
+        error: null,
+      });
 
       // Queue for analysis
       await queueMessageAnalysis(id);

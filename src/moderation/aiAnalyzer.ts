@@ -32,7 +32,7 @@ const conversationErrorCooldown = new Map<string, number>();
 
 let activeRequests = 0;
 let lastError: string | null = null;
-const MAX_ACTIVE_REQUESTS = 1;
+const MAX_ACTIVE_REQUESTS = 2;
 const DEBOUNCE_MS = 1500;
 const RECOVERY_INTERVAL_MS = 15000;
 const ERROR_COOLDOWN_MS = 30000;
@@ -186,6 +186,10 @@ function scheduleConversationAnalysis(conversationKey: string): void {
     clearTimeout(existingTimer);
   }
 
+  // If we have available slots, process immediately with shorter debounce
+  const debounceTime =
+    activeRequests < MAX_ACTIVE_REQUESTS ? Math.min(DEBOUNCE_MS, 500) : DEBOUNCE_MS;
+
   // Set new debounced timer
   const timer = setTimeout(async () => {
     conversationDebounceTimers.delete(conversationKey);
@@ -205,7 +209,7 @@ function scheduleConversationAnalysis(conversationKey: string): void {
     if (messages.length > 0) {
       await processBatch(conversationKey, messages);
     }
-  }, DEBOUNCE_MS);
+  }, debounceTime);
 
   conversationDebounceTimers.set(conversationKey, timer);
 }
@@ -271,6 +275,11 @@ export function startPendingAIAnalysisWorker(): void {
       const conversationKeys = await getPendingConversationKeys(100);
 
       for (const key of conversationKeys) {
+        // Stop if we've reached max active requests
+        if (activeRequests >= MAX_ACTIVE_REQUESTS) {
+          break;
+        }
+
         // Skip if already scheduled
         if (conversationDebounceTimers.has(key)) {
           continue;
