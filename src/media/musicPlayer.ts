@@ -104,7 +104,6 @@ export function buildFfmpegArgs(source: string): string[] {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"
     );
     args.push("-connect_timeout", "10");
-    args.push("-read_timeout", "30");
   }
 
   args.push(
