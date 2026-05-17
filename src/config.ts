@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConfigError } from "./errors";
+import { ConfigError } from "./errors.ts";
 
 const configSchema = z
   .object({

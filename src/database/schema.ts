@@ -14,7 +14,7 @@ import {
   sqliteTable,
   text as sqliteText,
 } from "drizzle-orm/sqlite-core";
-import { config } from "../config";
+import { config } from "../config.ts";
 
 // PostgreSQL Schema
 // ==================

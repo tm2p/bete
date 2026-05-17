@@ -1,6 +1,6 @@
-import { config } from "../config";
-import { createChildLogger } from "../logger";
-import { retryWithBackoff } from "../retry";
+import { config } from "../config.ts";
+import { createChildLogger } from "../logger.ts";
+import { retryWithBackoff } from "../retry.ts";
 import type { AnalysisResult, MessageRecord } from "./types";
 
 const log = createChildLogger("llmModerationClient");

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, isNull, or, type SQL, sql } from "drizzle-orm";
-import { getDatabase } from "../database/drizzle";
-import { attachmentsTable, messagesTable } from "../database/schema";
-import { createChildLogger } from "../logger";
+import { getDatabase } from "../database/drizzle.ts";
+import { attachmentsTable, messagesTable } from "../database/schema.ts";
+import { createChildLogger } from "../logger.ts";
 import type {
   AttachmentRecord,
   MessageQuery,
