@@ -11,7 +11,7 @@ class FakeProcess extends EventEmitter {
 describe("createYtDlp", () => {
   it("reads YouTube metadata as JSON", async () => {
     const proc = new FakeProcess();
-    const spawn = vi.fn(() => proc);
+    const spawn = vi.fn(() => proc) as any;
     const ytdlp = createYtDlp({ spawn });
 
     const result = ytdlp.getMetadata("https://youtu.be/video");
@@ -43,7 +43,7 @@ describe("createYtDlp", () => {
 
   it("reads direct audio URL", async () => {
     const proc = new FakeProcess();
-    const spawn = vi.fn(() => proc);
+    const spawn = vi.fn(() => proc) as any;
     const ytdlp = createYtDlp({ spawn });
 
     const result = ytdlp.getDirectAudioUrl("https://youtu.be/video");
@@ -69,7 +69,7 @@ describe("createYtDlp", () => {
 
   it("reads direct video URL", async () => {
     const proc = new FakeProcess();
-    const spawn = vi.fn(() => proc);
+    const spawn = vi.fn(() => proc) as any;
     const ytdlp = createYtDlp({ spawn });
 
     const result = ytdlp.getDirectVideoUrl("https://youtu.be/video");
@@ -84,7 +84,7 @@ describe("createYtDlp", () => {
         "https://youtu.be/video",
         "--get-url",
         "--format",
-        "bestvideo[protocol^=http]+bestaudio[protocol^=http]/best[protocol^=http]/best",
+        "best[protocol^=http]/best",
         "--no-playlist",
         "--no-warnings",
         "--quiet",
@@ -95,7 +95,7 @@ describe("createYtDlp", () => {
 
   it("rejects when yt-dlp exits non-zero", async () => {
     const proc = new FakeProcess();
-    const ytdlp = createYtDlp({ spawn: vi.fn(() => proc) });
+    const ytdlp = createYtDlp({ spawn: vi.fn(() => proc) as any });
 
     const result = ytdlp.getMetadata("https://youtu.be/video");
     proc.stderr.write("failed");

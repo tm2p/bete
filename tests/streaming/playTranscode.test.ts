@@ -5,7 +5,7 @@ vi.mock("node:child_process", async () => {
   const actual = await vi.importActual("node:child_process");
   return {
     ...actual,
-    spawn: (cmd: string, args: string[], opts: any) => {
+    spawn: (_cmd: string, _args: string[], _opts: any) => {
       const stdout = new PassThrough();
       const stderr = new PassThrough();
       const listeners: Record<string, Function[]> = {};
@@ -46,7 +46,9 @@ describe("playTranscodedPreparedStream", () => {
       stream: { playVideo: () => null, playAudio: () => null },
       play: vi.fn().mockImplementation(async (readable) => {
         // consume a bit from readable to simulate playback
-        readable.on("data", (d: Buffer) => {});
+        if (readable && typeof readable.on === "function") {
+          readable.on("data", (_d: Buffer) => {});
+        }
         // resolve after a short delay
         await new Promise((r) => setTimeout(r, 5));
       }),
