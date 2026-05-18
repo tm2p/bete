@@ -76,7 +76,12 @@ export function parseModerationResponse(
   targetIds: string[],
 ): AnalysisResult[] {
   // Extract and parse JSON object
-  const parsed = extractJson(content);
+  let parsed = extractJson(content);
+
+  // If parsed is a direct array, wrap it in a results object to handle LLM variations
+  if (Array.isArray(parsed)) {
+    parsed = { results: parsed };
+  }
 
   // Validate structure
   if (!parsed || typeof parsed !== "object" || !("results" in parsed)) {
