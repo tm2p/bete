@@ -6,3 +6,4 @@ public/app/
 .muxer-queue.**
 .claude/
 .env.test
+logs/
