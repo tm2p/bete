@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   app:
-    build: .
+    image: ${IMAGE_NAME:-ghcr.io/mytheclipse/bete:latest}
     container_name: imphenbot-app
     restart: unless-stopped
     env_file:

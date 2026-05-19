@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   deploy:
@@ -18,14 +19,25 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push Docker image
+        env:
+          IMAGE_NAME: ghcr.io/mytheclipse/bete:latest
+        run: |
+          docker build -t "$IMAGE_NAME" .
+          docker push "$IMAGE_NAME"
+
       - name: Deploy to VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           ENV_FILE: ${{ secrets.ENV_FILE }}
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
           GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          IMAGE_NAME: ghcr.io/mytheclipse/bete:latest
         run: |
           # 1. Setup SSH Key
           mkdir -p ~/.ssh
@@ -33,39 +45,24 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
           
-          # 2. Deploy using git clone and docker
+          # 2. Pull image and start containers on VPS
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no "$VPS_USERNAME@$VPS_HOST" "
             set -e
             APP_DIR=/opt/imphenbot
-            
-            # Configure git safe directory
-            git config --global --add safe.directory \$APP_DIR
-            
-            # Configure git to use token for authentication
-            git config --global url.\"https://x-access-token:$GITHUB_TOKEN@github.com/\".insteadOf \"https://github.com/\"
-            
-            # Clone or update repository
-            if [ -d \"\$APP_DIR/.git\" ]; then
-              echo 'Repository exists, pulling latest changes...'
-              cd \$APP_DIR
-              git fetch origin master
-              git reset --hard origin/master
-            else
-              echo 'Cloning repository...'
-              mkdir -p \$APP_DIR
-              git clone -b master --depth 1 $REPO_URL \$APP_DIR
-              cd \$APP_DIR
-            fi
-            
-            # Inject environment variables
-            echo \"$ENV_FILE\" > .env
-            
-            # Build and start containers with docker compose
+            mkdir -p \$APP_DIR
+            cd \$APP_DIR
+
+            echo \"$GITHUB_TOKEN\" | docker login ghcr.io -u \"$GITHUB_ACTOR\" --password-stdin
+
+            printf '%s\nIMAGE_NAME=$IMAGE_NAME' \"$ENV_FILE\" > .env
+
             if command -v docker-compose &> /dev/null; then
               docker-compose down || true
-              docker-compose up -d --build
+              docker-compose pull
+              docker-compose up -d
             else
               docker compose down || true
-              docker compose up -d --build
+              docker compose pull
+              docker compose up -d
             fi
           "
