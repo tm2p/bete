@@ -24,7 +24,7 @@ jobs:
 
       - name: Build and push Docker image
         env:
-          IMAGE_NAME: ghcr.io/mytheclipse/bete:latest
+          IMAGE_NAME: ghcr.io/mytheclipse/bete:${{ github.sha }}
         run: |
           docker build -t "$IMAGE_NAME" .
           docker push "$IMAGE_NAME"
@@ -37,7 +37,7 @@ jobs:
           ENV_FILE: ${{ secrets.ENV_FILE }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_ACTOR: ${{ github.actor }}
-          IMAGE_NAME: ghcr.io/mytheclipse/bete:latest
+          IMAGE_NAME: ghcr.io/mytheclipse/bete:${{ github.sha }}
         run: |
           # 1. Setup SSH Key
           mkdir -p ~/.ssh
