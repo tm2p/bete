@@ -9,7 +9,6 @@ import express, {
   type Response,
 } from "express";
 import helmet from "helmet";
-import { WebSocketServer } from "ws";
 import { config } from "./config";
 import { AppError } from "./errors";
 import { createChildLogger, logger } from "./logger";
@@ -37,7 +36,7 @@ import {
   exposePcmBroadcastGlobal,
   exposeVideoBroadcastGlobal,
 } from "./ws/broadcastGlobals";
-import { createVoiceAudioBridge } from "./ws/voiceAudioBridge";
+import { startWebSocketServer } from "./ws/server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,8 +60,6 @@ export async function startWebserver(
   const server = http.createServer(app);
 
   const wsPath = "/ws";
-  const wss = new WebSocketServer({ server, path: wsPath });
-  wsLogger.info({ port, wsPath }, "WebSocket server listening");
 
   // Create broadcaster instance
   const broadcaster = createBroadcaster();
@@ -205,40 +202,15 @@ export async function startWebserver(
   exposeVideoBroadcastGlobal(() => broadcaster.getClients(), wsLogger);
   exposeActiveUserGlobal(activeUsers, broadcastUserState);
 
-  const voiceAudioBridge = createVoiceAudioBridge(wsLogger);
-
-  wss.on("connection", (ws) => {
-    wsLogger.info({ port, wsPath }, "New WebSocket connection");
-    broadcaster.addClient(ws);
-
-    ws.send(
-      JSON.stringify({
-        type: "user_state",
-        users: Array.from(activeUsers.entries()).map(([id, data]) => ({
-          id,
-          ...data,
-        })),
-      }),
-    );
-    ws.send(JSON.stringify({ type: "ui_state", state: getSharedUIState() }));
-    ws.send(
-      JSON.stringify({
-        type: "media_state",
-        state: mediaController.getState(),
-      }),
-    );
-
-    ws.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
-      if (!Buffer.isBuffer(data)) return;
-      voiceAudioBridge.handleBrowserAudio(data);
-    });
-
-    ws.on("close", () => {
-      broadcaster.removeClient(ws);
-    });
-    ws.on("error", () => {
-      broadcaster.removeClient(ws);
-    });
+  startWebSocketServer({
+    server,
+    port,
+    wsPath,
+    broadcaster,
+    activeUsers,
+    getSharedUIState,
+    mediaController,
+    logger: wsLogger,
   });
 
   app.use(
