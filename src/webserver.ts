@@ -2,7 +2,6 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AudioPlayerStatus } from "@discordjs/voice";
 import type { Client } from "discord.js-selfbot-v13";
 import express, {
   type NextFunction,
@@ -10,9 +9,7 @@ import express, {
   type Response,
 } from "express";
 import helmet from "helmet";
-import * as prism from "prism-media";
 import { WebSocketServer } from "ws";
-import { rmsDb, upsample24kMonoTo48kStereo } from "./audio/pcm";
 import { config } from "./config";
 import { AppError } from "./errors";
 import { createChildLogger, logger } from "./logger";
@@ -27,7 +24,6 @@ import {
   initializeMediaSettings,
   persistMediaSettings,
 } from "./state/mediaSettings";
-import { discordPlayer } from "./player";
 import { createAnalysisRoutes } from "./routes/analysisRoutes";
 import { createMediaRoutes } from "./routes/mediaRoutes";
 import { createMessageRoutes } from "./routes/messageRoutes";
@@ -41,6 +37,7 @@ import {
   exposePcmBroadcastGlobal,
   exposeVideoBroadcastGlobal,
 } from "./ws/broadcastGlobals";
+import { createVoiceAudioBridge } from "./ws/voiceAudioBridge";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -208,112 +205,7 @@ export async function startWebserver(
   exposeVideoBroadcastGlobal(() => broadcaster.getClients(), wsLogger);
   exposeActiveUserGlobal(activeUsers, broadcastUserState);
 
-  // --- Outbound: browser PCM (24kHz mono) → Opus → Discord ---
-  const RATE = 48000;
-  const CHANNELS = 2;
-  const FRAME_SIZE = 960;
-  const BYTES_PER_FRAME = FRAME_SIZE * CHANNELS * 2; // 3840 bytes = 20ms
-  const SILENCE_TAIL_MS = 300; // continue sending silence for 300ms after browser stops
-  const MAX_BUF_BYTES = BYTES_PER_FRAME * 50; // cap at 1 second to avoid runaway buffer
-
-  let opusEncoder: prism.opus.Encoder | null = null;
-  let bridgePlayerPaused = true;
-  const SILENCE_FRAME = Buffer.alloc(BYTES_PER_FRAME, 0);
-
-  function startBrowserAudioBridge(): void {
-    if (opusEncoder) return;
-    opusEncoder = new prism.opus.Encoder({
-      rate: RATE,
-      channels: CHANNELS,
-      frameSize: FRAME_SIZE,
-    });
-    const oggBitstream = new prism.opus.OggLogicalBitstream({
-      opusHead: new prism.opus.OpusHead({
-        channelCount: CHANNELS,
-        sampleRate: RATE,
-      }),
-      pageSizeControl: { maxPackets: 1 },
-      crc: true,
-    });
-    opusEncoder.on("error", () => {});
-    opusEncoder.pipe(oggBitstream);
-    opusEncoder.write(Buffer.alloc(BYTES_PER_FRAME, 0));
-    discordPlayer.playStream(oggBitstream, "browser-bridge");
-    discordPlayer.pause("browser-bridge");
-    bridgePlayerPaused = true;
-  }
-
-  function ensureBrowserAudioBridge(): boolean {
-    const owner = discordPlayer.getOwner();
-    if (owner !== "none" && owner !== "browser-bridge") return false;
-    if (
-      owner === "none" ||
-      discordPlayer.getStatus() === AudioPlayerStatus.Idle
-    ) {
-      startBrowserAudioBridge();
-    }
-    return true;
-  }
-
-  let pcmBuffer = Buffer.alloc(0);
-  let lastBrowserAudioTime = 0;
-
-  // Log level every 2 seconds
-  let dbAccum = 0,
-    dbCount = 0;
-  setInterval(() => {
-    if (dbCount > 0) {
-      const avg = dbAccum / dbCount;
-      wsLogger.info({ level: avg.toFixed(1), frames: dbCount }, "Audio level");
-      dbAccum = 0;
-      dbCount = 0;
-    }
-  }, 2000);
-
-  // PULL-BASED encode loop: fires every 20ms, pulls exactly one frame from buffer.
-  // This avoids the timing conflict where browser bursts and silence timer collide.
-  setInterval(() => {
-    const msSinceAudio = Date.now() - lastBrowserAudioTime;
-    let frame: Buffer | null = null;
-
-    if (pcmBuffer.length >= BYTES_PER_FRAME) {
-      // Real audio available
-      frame = pcmBuffer.subarray(0, BYTES_PER_FRAME);
-      pcmBuffer = pcmBuffer.subarray(BYTES_PER_FRAME);
-
-      // Track level for logging
-      dbAccum += rmsDb(frame);
-      dbCount++;
-
-      if (!ensureBrowserAudioBridge()) {
-        pcmBuffer = Buffer.alloc(0);
-        return;
-      }
-      if (bridgePlayerPaused) {
-        const unpaused = discordPlayer.unpause("browser-bridge");
-        bridgePlayerPaused = false;
-        wsLogger.info({ unpaused }, "Transmitting — Discord indicator ON");
-      }
-    } else if (msSinceAudio < SILENCE_TAIL_MS && msSinceAudio > 0) {
-      // Buffer drained but audio was recent — pad silence to avoid OGG gap
-      frame = SILENCE_FRAME;
-    } else if (!bridgePlayerPaused && msSinceAudio >= SILENCE_TAIL_MS) {
-      // No audio for a while — pause Discord indicator
-      discordPlayer.pause("browser-bridge");
-      bridgePlayerPaused = true;
-      wsLogger.info("Stopped — Discord indicator OFF");
-      return;
-    } else {
-      return; // already paused, nothing to do
-    }
-
-    // Write one frame. If encoder is backpressured, skip this tick to avoid stalling.
-    if (!opusEncoder) return;
-    const ok = opusEncoder.write(frame);
-    if (!ok) {
-      opusEncoder.once("drain", () => {}); // re-arm drain without blocking
-    }
-  }, 20);
+  const voiceAudioBridge = createVoiceAudioBridge(wsLogger);
 
   wss.on("connection", (ws) => {
     wsLogger.info({ port, wsPath }, "New WebSocket connection");
@@ -338,15 +230,7 @@ export async function startWebserver(
 
     ws.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
       if (!Buffer.isBuffer(data)) return;
-      lastBrowserAudioTime = Date.now();
-
-      // Upsample 24kHz mono → 48kHz stereo and add to buffer
-      const upsampled = upsample24kMonoTo48kStereo(data);
-
-      // Cap buffer to avoid runaway growth during stall
-      if (pcmBuffer.length < MAX_BUF_BYTES) {
-        pcmBuffer = Buffer.concat([pcmBuffer, upsampled]);
-      }
+      voiceAudioBridge.handleBrowserAudio(data);
     });
 
     ws.on("close", () => {
