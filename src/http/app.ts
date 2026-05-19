@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Client } from "discord.js-selfbot-v13";
-import express, { type NextFunction, type Request, type Response } from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import helmet from "helmet";
 import { AppError } from "../errors";
 import type { createChildLogger } from "../logger";
@@ -83,11 +87,13 @@ export function createHttpApp(options: CreateHttpAppOptions) {
   });
 
   // Health and auth routes
-  app.use(createHealthRoutes({
-    adminPassword: options.adminPassword,
-    activeUserCount: options.activeUserCount,
-    wsClientCount: options.wsClientCount,
-  }));
+  app.use(
+    createHealthRoutes({
+      adminPassword: options.adminPassword,
+      activeUserCount: options.activeUserCount,
+      wsClientCount: options.wsClientCount,
+    }),
+  );
 
   // Route modules
   app.use(
@@ -117,28 +123,21 @@ export function createHttpApp(options: CreateHttpAppOptions) {
     }),
   );
 
-  app.use(
-    (
-      error: Error,
-      _req: Request,
-      res: Response,
-      _next: NextFunction,
-    ) => {
-      if (error instanceof AppError) {
-        res.status(error.statusCode).json({
-          error: error.code,
-          message: error.message,
-        });
-        return;
-      }
-
-      options.logger.error({ error }, "Unhandled webserver error");
-      res.status(500).json({
-        error: "INTERNAL_SERVER_ERROR",
-        message: "Internal server error",
+  app.use((error: Error, _req: Request, res: Response, _next: NextFunction) => {
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({
+        error: error.code,
+        message: error.message,
       });
-    },
-  );
+      return;
+    }
+
+    options.logger.error({ error }, "Unhandled webserver error");
+    res.status(500).json({
+      error: "INTERNAL_SERVER_ERROR",
+      message: "Internal server error",
+    });
+  });
 
   return app;
 }

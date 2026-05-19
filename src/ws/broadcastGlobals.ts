@@ -1,5 +1,8 @@
 import type { createChildLogger } from "../logger";
-import type { BroadcasterClient, ModerationBroadcaster } from "../moderation/types";
+import type {
+  BroadcasterClient,
+  ModerationBroadcaster,
+} from "../moderation/types";
 
 type Logger = ReturnType<typeof createChildLogger>;
 

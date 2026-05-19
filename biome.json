@@ -1,6 +1,13 @@
 {
   "files": {
-    "includes": ["src/**/*.ts", "tests/**/*.ts", "*.json", "*.ts", "!vendor/**"]
+    "includes": [
+      "src/**/*.ts",
+      "tests/**/*.ts",
+      "*.json",
+      "*.ts",
+      "!vendor/**",
+      "!.claude/**"
+    ]
   },
   "formatter": {
     "enabled": true,

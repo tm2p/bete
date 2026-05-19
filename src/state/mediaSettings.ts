@@ -9,7 +9,10 @@ export const defaultMediaSettings: MediaSettings = {
 };
 
 export async function initializeMediaSettings(): Promise<MediaSettings> {
-  const stored = await getPersistedValue("media-settings", defaultMediaSettings);
+  const stored = await getPersistedValue(
+    "media-settings",
+    defaultMediaSettings,
+  );
   return {
     ...defaultMediaSettings,
     ...(stored as MediaSettings),

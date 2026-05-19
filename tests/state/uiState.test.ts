@@ -37,8 +37,10 @@ describe("normalizeSharedUIState", () => {
   });
 
   it("falls back to voice tab for invalid activeTab", () => {
-    expect(normalizeSharedUIState({ activeTab: "bad" as never })).toMatchObject({
-      activeTab: "voice",
-    });
+    expect(normalizeSharedUIState({ activeTab: "bad" as never })).toMatchObject(
+      {
+        activeTab: "voice",
+      },
+    );
   });
 });

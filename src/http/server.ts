@@ -33,7 +33,8 @@ export async function startWebserver(
   client: Client,
   voiceController: VoiceController,
 ) {
-  const { getSharedUIState, patchSharedUIState } = await createSharedUIStateStore();
+  const { getSharedUIState, patchSharedUIState } =
+    await createSharedUIStateStore();
   let mediaSettings = await initializeMediaSettings();
 
   const wsPath = "/ws";
