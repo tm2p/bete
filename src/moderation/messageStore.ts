@@ -45,6 +45,66 @@ function db(): MessageDatabase {
   return getDatabase() as unknown as MessageDatabase;
 }
 
+function channelOrThreadCondition(channelId: string): SQL {
+  return or(
+    eq(messagesTable.channel_id, channelId),
+    eq(messagesTable.thread_id, channelId),
+  ) as SQL;
+}
+
+function buildListMessageConditions(query: MessageQuery): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (query.guildId) {
+    conditions.push(eq(messagesTable.guild_id, query.guildId));
+  }
+
+  if (query.channelId) {
+    conditions.push(channelOrThreadCondition(query.channelId));
+  }
+
+  if (query.threadId) {
+    conditions.push(eq(messagesTable.thread_id, query.threadId));
+  }
+
+  if (query.userId) {
+    conditions.push(eq(messagesTable.user_id, query.userId));
+  }
+
+  if (query.status && query.status.length > 0) {
+    conditions.push(sql`${messagesTable.ai_status} in ${query.status}`);
+  }
+
+  if (query.q) {
+    const pattern = `%${query.q.toLowerCase()}%`;
+    conditions.push(sql`lower(${messagesTable.content}) like ${pattern}`);
+  }
+
+  const cursorData = decodeCursor(query.cursor);
+  if (cursorData) {
+    conditions.push(
+      sql`(${messagesTable.created_at} < ${cursorData.created_at} or (${messagesTable.created_at} = ${cursorData.created_at} and ${messagesTable.id} < ${cursorData.id}))`,
+    );
+  }
+
+  return conditions;
+}
+
+function pageMessages(
+  rows: unknown[],
+  limit: number,
+): PageResult<MessageRecord> {
+  const hasMore = rows.length > limit;
+  const data = rows.slice(0, limit) as MessageRecord[];
+  const lastItem = data[data.length - 1];
+  const nextCursor =
+    hasMore && lastItem
+      ? encodeCursor({ created_at: lastItem.created_at, id: lastItem.id })
+      : null;
+
+  return { data, nextCursor };
+}
+
 export { decodeCursor, encodeCursor } from "./pagination";
 
 export async function insertMessage(message: MessageRecord): Promise<void> {
@@ -392,69 +452,15 @@ export async function listMessages(
 ): Promise<PageResult<MessageRecord>> {
   try {
     const database = db();
-    const conditions: SQL[] = [];
-
-    // Apply filters
-    if (query.guildId) {
-      conditions.push(eq(messagesTable.guild_id, query.guildId));
-    }
-
-    if (query.channelId) {
-      conditions.push(
-        sql`(${messagesTable.channel_id} = ${query.channelId} or ${messagesTable.thread_id} = ${query.channelId})`,
-      );
-    }
-
-    if (query.threadId) {
-      conditions.push(eq(messagesTable.thread_id, query.threadId));
-    }
-
-    if (query.userId) {
-      conditions.push(eq(messagesTable.user_id, query.userId));
-    }
-
-    if (query.status && query.status.length > 0) {
-      conditions.push(sql`${messagesTable.ai_status} in ${query.status}`);
-    }
-
-    // Text search
-    if (query.q) {
-      const pattern = `%${query.q.toLowerCase()}%`;
-      conditions.push(sql`lower(${messagesTable.content}) like ${pattern}`);
-    }
-
-    // Cursor-based pagination (newest first)
-    if (query.cursor) {
-      const cursorData = decodeCursor(query.cursor);
-      if (cursorData) {
-        conditions.push(
-          sql`(${messagesTable.created_at} < ${cursorData.created_at} or (${messagesTable.created_at} = ${cursorData.created_at} and ${messagesTable.id} < ${cursorData.id}))`,
-        );
-      }
-    }
-
-    // Fetch limit + 1 to determine if there's a next page
-    const fetchLimit = query.limit + 1;
+    const conditions = buildListMessageConditions(query);
     const rows = await database
       .select()
       .from(messagesTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(messagesTable.created_at), desc(messagesTable.id))
-      .limit(fetchLimit);
+      .limit(query.limit + 1);
 
-    const hasMore = rows.length > query.limit;
-    const data = rows.slice(0, query.limit) as MessageRecord[];
-
-    let nextCursor: string | null = null;
-    if (hasMore && data.length > 0) {
-      const lastItem = data[data.length - 1];
-      nextCursor = encodeCursor({
-        created_at: lastItem.created_at,
-        id: lastItem.id,
-      });
-    }
-
-    return { data, nextCursor };
+    return pageMessages(rows, query.limit);
   } catch (error) {
     logger.error(
       {
@@ -633,12 +639,7 @@ export async function searchMessages(input: {
     const conditions: (SQL | undefined)[] = [isNull(messagesTable.deleted_at)];
 
     if (channelId) {
-      conditions.push(
-        or(
-          eq(messagesTable.channel_id, channelId),
-          eq(messagesTable.thread_id, channelId),
-        ),
-      );
+      conditions.push(channelOrThreadCondition(channelId));
     }
 
     conditions.push(

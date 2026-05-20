@@ -67,12 +67,5 @@
     "tailwindcss": "^4.3.0",
     "tsx": "^4.22.2",
     "vitest": "latest"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@lng2004/node-datachannel",
-      "better-sqlite3",
-      "node-datachannel"
-    ]
   }
 }
