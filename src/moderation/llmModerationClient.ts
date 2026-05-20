@@ -55,11 +55,9 @@ interface RawModerationResponse {
 }
 
 /**
- * Helper to extract a JSON object from a potentially conversational or markdown-wrapped string.
- * It first scans for markdown json code blocks, then falls back to trying all start/end brace pairs from largest to smallest.
+ * Helper to extract JSON from a potentially conversational or markdown-wrapped string.
  */
 export function extractJson(content: string): any {
-  // 1. Try to find markdown json code blocks: ```json ... ``` or ``` ... ```
   const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
   const matches = content.matchAll(codeBlockRegex);
   for (const match of matches) {
@@ -69,32 +67,53 @@ export function extractJson(content: string): any {
       if (parsed && typeof parsed === "object") {
         return parsed;
       }
-    } catch (e) {
-      // Continue to next code block
-    }
+    } catch (_) {}
   }
 
-  // 2. If no code blocks parse successfully, try scanning for {...} pairs
-  const openBraces: number[] = [];
-  const closeBraces: number[] = [];
-  for (let i = 0; i < content.length; i++) {
-    if (content[i] === "{") openBraces.push(i);
-    if (content[i] === "}") closeBraces.push(i);
-  }
+  for (let start = 0; start < content.length; start++) {
+    const firstChar = content[start];
+    if (firstChar !== "{" && firstChar !== "[") continue;
 
-  // Try pairs from largest span to smallest
-  for (const start of openBraces) {
-    for (let j = closeBraces.length - 1; j >= 0; j--) {
-      const end = closeBraces[j];
-      if (end > start) {
-        const candidate = content.substring(start, end + 1);
-        try {
-          const parsed = JSON.parse(candidate);
-          if (parsed && typeof parsed === "object") {
-            return parsed;
-          }
-        } catch (e) {
-          // ignore and try next
+    const stack = [firstChar];
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start + 1; i < content.length; i++) {
+      const char = content[i];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (char === "{" || char === "[") {
+        stack.push(char);
+        continue;
+      }
+
+      const last = stack[stack.length - 1];
+      if ((char === "}" && last === "{") || (char === "]" && last === "[")) {
+        stack.pop();
+        if (stack.length === 0) {
+          const candidate = content.slice(start, i + 1);
+          try {
+            const parsed = JSON.parse(candidate);
+            if (parsed && typeof parsed === "object") {
+              return parsed;
+            }
+          } catch (_) {}
+          break;
         }
       }
     }
@@ -447,111 +466,152 @@ Return ONLY valid JSON, no other text.`;
     })
     .slice(0, 8); // Cap at 8 to prevent LLM API limits (e.g. Nemotron/Omni models 8-image limit)
 
-  let messageContent:
+  type MessageContent =
     | string
     | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+
+  let imageParts: Array<{
+    type: string;
+    text?: string;
+    image_url?: { url: string };
+  }> = [];
   if (imageAttachments.length > 0) {
-    const imageParts = await Promise.all(
-      imageAttachments.map(async (att) => {
-        try {
-          const urlToUse = getAttachmentImageUrl(att);
-          if (!urlToUse) return [];
-          log.info(
-            { attachmentId: att.id, url: urlToUse },
-            "Downloading attachment for base64 encoding",
-          );
-          const res = await fetch(urlToUse);
-          if (!res.ok) {
+    imageParts = (
+      await Promise.all(
+        imageAttachments.map(async (att) => {
+          try {
+            const urlToUse = getAttachmentImageUrl(att);
+            if (!urlToUse) return [];
+            log.info(
+              { attachmentId: att.id, url: urlToUse },
+              "Downloading attachment for base64 encoding",
+            );
+            const res = await fetch(urlToUse);
+            if (!res.ok) {
+              log.warn(
+                { attachmentId: att.id, status: res.status },
+                "Failed to fetch attachment image",
+              );
+              return [];
+            }
+
+            const buffer = await res.arrayBuffer();
+            const base64Str = Buffer.from(buffer).toString("base64");
+            const dataUrl = `data:${att.type};base64,${base64Str}`;
+
+            return [
+              {
+                type: "image_url",
+                image_url: {
+                  url: dataUrl,
+                },
+              },
+              {
+                type: "text",
+                text: `\n[Image Attachment for Message ID: ${att.message_id}, Filename: ${att.filename}]`,
+              },
+            ];
+          } catch (err) {
             log.warn(
-              { attachmentId: att.id, status: res.status },
-              "Failed to fetch attachment image",
+              {
+                attachmentId: att.id,
+                error: err instanceof Error ? err.message : String(err),
+              },
+              "Error base64 encoding attachment",
             );
             return [];
           }
-
-          const buffer = await res.arrayBuffer();
-          const base64Str = Buffer.from(buffer).toString("base64");
-          const dataUrl = `data:${att.type};base64,${base64Str}`;
-
-          return [
-            {
-              type: "image_url",
-              image_url: {
-                url: dataUrl,
-              },
-            },
-            {
-              type: "text",
-              text: `\n[Image Attachment for Message ID: ${att.message_id}, Filename: ${att.filename}]`,
-            },
-          ];
-        } catch (err) {
-          log.warn(
-            {
-              attachmentId: att.id,
-              error: err instanceof Error ? err.message : String(err),
-            },
-            "Error base64 encoding attachment",
-          );
-          return [];
-        }
-      }),
-    );
-
-    messageContent = [
-      ...imageParts.flat(),
-      {
-        type: "text",
-        text: moderationPrompt,
-      },
-    ];
-  } else {
-    messageContent = moderationPrompt;
+        }),
+      )
+    ).flat();
   }
 
-  const result = await retryWithBackoff(
-    () =>
-      openai.chat.completions.create({
-        model: config.AI_LLM_MODEL,
-        messages: [
-          {
-            role: "user",
-            content: messageContent,
-          },
-        ],
-        temperature: 0.2,
-        top_p: 0.95,
-        max_tokens: 65536,
-        response_format: { type: "json_object" },
-        stream: false,
-        chat_template_kwargs: { enable_thinking: false },
-        reasoning_budget: 0,
-      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming),
-    {
-      retries: 3,
-      minTimeout: 1000,
-      maxTimeout: 10000,
-      logger: log,
-    },
-  );
+  let lastParseError: string | null = null;
+  let lastInvalidContent: string | null = null;
+  const buildMessageContent = (): MessageContent => {
+    const correctionPrompt = lastParseError
+      ? `${moderationPrompt}\n\nPrevious response failed validation. Error: ${lastParseError}\nInvalid response preview:\n${lastInvalidContent?.slice(0, 1000) ?? "<empty>"}\n\nRetry with corrected output. Return ONLY one valid JSON object matching the required schema.`
+      : moderationPrompt;
 
-  // Extract content from response
-  if (!result.choices || !Array.isArray(result.choices) || !result.choices[0]) {
-    throw new Error("Invalid LLM response structure");
-  }
+    if (imageParts.length > 0) {
+      return [
+        ...imageParts,
+        {
+          type: "text",
+          text: correctionPrompt,
+        },
+      ];
+    }
 
-  const content = result.choices[0].message?.content;
-  if (!content) {
-    throw new Error("No content in LLM response");
-  }
+    return correctionPrompt;
+  };
 
-  // Parse and validate
   let parsed: AnalysisResult[];
+  let result: OpenAI.Chat.Completions.ChatCompletion | null = null;
   try {
-    parsed = parseModerationResponse(content, targetIds);
+    const analysis = await retryWithBackoff(
+      async () => {
+        const completion = await openai.chat.completions.create({
+          model: config.AI_LLM_MODEL,
+          messages: [
+            {
+              role: "user",
+              content: buildMessageContent(),
+            },
+          ],
+          temperature: 0.2,
+          top_p: 0.95,
+          max_tokens: 65536,
+          response_format: { type: "json_object" },
+          stream: false,
+          chat_template_kwargs: { enable_thinking: false },
+          reasoning_budget: 0,
+        } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+
+        if (
+          !completion.choices ||
+          !Array.isArray(completion.choices) ||
+          !completion.choices[0]
+        ) {
+          throw new Error("Invalid LLM response structure");
+        }
+
+        const content = completion.choices[0].message?.content;
+        if (!content) {
+          throw new Error("No content in LLM response");
+        }
+
+        try {
+          return {
+            parsed: parseModerationResponse(content, targetIds),
+            result: completion,
+          };
+        } catch (parseError) {
+          lastParseError =
+            parseError instanceof Error
+              ? parseError.message
+              : String(parseError);
+          lastInvalidContent = content;
+          throw parseError;
+        }
+      },
+      {
+        retries: 3,
+        minTimeout: 1000,
+        maxTimeout: 10000,
+        logger: log,
+      },
+    );
+    parsed = analysis.parsed;
+    result = analysis.result;
   } catch (parseError) {
+    if (!lastInvalidContent) {
+      throw parseError;
+    }
+
     const errorMsg =
       parseError instanceof Error ? parseError.message : String(parseError);
+    const content: string = lastInvalidContent;
     const salvaged = salvageMalformedModerationResponse(content, targetIds);
     if (salvaged) {
       log.warn(

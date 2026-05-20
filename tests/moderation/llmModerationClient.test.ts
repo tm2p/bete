@@ -6,7 +6,17 @@ import {
 import type { MessageRecord } from "../../src/moderation/types";
 
 vi.mock("../../src/retry", () => ({
-  retryWithBackoff: vi.fn((fn) => fn()),
+  retryWithBackoff: vi.fn(async (fn) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }),
 }));
 
 /**
@@ -120,6 +130,49 @@ describe("parseModerationResponse", () => {
     const result = parseModerationResponse(content, ["m1"]);
     expect(result).toHaveLength(1);
     expect(result[0].messageId).toBe("m1");
+  });
+
+  it("handles trailing JSON after first moderation object", () => {
+    const moderationJson = JSON.stringify({
+      results: [
+        {
+          message_id: "m1",
+          status: "clean",
+          flags: [],
+          score: 0.1,
+          analysis: "OK",
+        },
+      ],
+    });
+    const trailingLogJson = JSON.stringify({ msg: "Retry attempt" });
+
+    const result = parseModerationResponse(
+      `${moderationJson}\n${trailingLogJson}`,
+      ["m1"],
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].messageId).toBe("m1");
+  });
+
+  it("handles braces inside string values", () => {
+    const result = parseModerationResponse(
+      JSON.stringify({
+        results: [
+          {
+            message_id: "m1",
+            status: "clean",
+            flags: [],
+            score: 0.1,
+            analysis: "Contains literal braces: {not json}",
+          },
+        ],
+      }),
+      ["m1"],
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].analysis).toBe("Contains literal braces: {not json}");
   });
 
   it("handles nested fields in results", () => {
@@ -552,6 +605,77 @@ describe("runModerationAnalysis", () => {
 
     expect(result.results).toHaveLength(1);
     expect(result.results[0].messageId).toBe("m1");
+  });
+
+  it("includes previous validation error in retry prompt", async () => {
+    const invalidResponse = {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              results: [
+                {
+                  message_id: "m1",
+                  status: "bad",
+                  flags: [],
+                  score: 0.1,
+                  analysis: "Invalid",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    };
+    const validResponse = {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              results: [
+                {
+                  message_id: "m1",
+                  status: "clean",
+                  flags: [],
+                  score: 0.1,
+                  analysis: "OK",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    };
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify(invalidResponse),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify(validResponse),
+      });
+
+    const result = await runModerationAnalysis({
+      targets: [createMessageRecord()],
+      contextText: "test context",
+    });
+
+    const secondRequestBody = JSON.parse(
+      (global.fetch as any).mock.calls[1][1].body,
+    );
+    expect(secondRequestBody.messages[0].content).toContain(
+      "Previous response failed validation",
+    );
+    expect(secondRequestBody.messages[0].content).toContain(
+      "Invalid status: bad",
+    );
+    expect(secondRequestBody.messages[0].content).toContain(
+      "Retry with corrected output",
+    );
+    expect(result.results[0].status).toBe("clean");
   });
 
   it("throws on missing choices in response", async () => {
@@ -1039,8 +1163,7 @@ describe("runModerationAnalysis", () => {
     expect(result.results[0].status).toBe("warn");
 
     const requestBody = JSON.parse((global.fetch as any).mock.calls[1][1].body);
-    expect(requestBody.messages[0].content).toHaveLength(1);
-    expect(requestBody.messages[0].content[0].text).toContain(
+    expect(requestBody.messages[0].content).toContain(
       "https://example.invalid/claim",
     );
   });
