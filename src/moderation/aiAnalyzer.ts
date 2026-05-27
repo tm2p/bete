@@ -178,6 +178,15 @@ function isConversationProcessingLocked(conversationKey: string): boolean {
  *
  * FIX #1+#5: Increments the individual circuit breaker on failure so a
  * sustained outage stops hammering the LLM endpoint.
+ *
+ * Infinite-loop prevention: if the LLM consistently drops the single target
+ * message across all retries (analysis_incomplete), we write a terminal flag
+ * 'individual_analysis_exhausted' to DB instead of 'analysis_incomplete'.
+ * The recovery worker only queries for 'analysis_incomplete', so exhausted
+ * messages are permanently excluded from the reprocessing loop.
+ * Transient failures (network/parse/DB) are NOT written as exhausted — they
+ * stay as 'analysis_incomplete' so the circuit-breaker-throttled recovery
+ * cycle can retry them later.
  */
 async function processIndividualFallback(
   message: MessageRecord,
@@ -191,6 +200,10 @@ async function processIndividualFallback(
     conversationKey,
     (individualInFlightByConversation.get(conversationKey) ?? 0) + 1,
   );
+
+  // Track whether all retries were exhausted specifically because the LLM
+  // consistently returned no result for this message (vs. a transient error).
+  let exhaustedOnIncomplete = false;
 
   try {
     const contextBefore = await getConversationContextBefore({
@@ -213,12 +226,30 @@ async function processIndividualFallback(
     ]);
 
     const analysisResult = await retryWithBackoff(
-      () =>
-        runModerationAnalysis({
+      async () => {
+        const result = await runModerationAnalysis({
           targets: [message],
           contextText: contextLines.join("\n"),
           attachments,
-        }),
+        });
+
+        // If the LLM still dropped our only target, convert to a retryable
+        // throw so backoff kicks in.  Track this so the catch block can
+        // distinguish it from a transient network/parse failure.
+        const stillIncomplete = result.results.some((r) =>
+          r.flags.includes("analysis_incomplete"),
+        );
+        if (stillIncomplete) {
+          exhaustedOnIncomplete = true;
+          throw new Error(
+            `LLM returned no result for single-target message ${messageId} — will retry with backoff`,
+          );
+        }
+
+        // Got a real result — clear the incomplete flag.
+        exhaustedOnIncomplete = false;
+        return result;
+      },
       {
         retries: 2,
         minTimeout: 2000,
@@ -269,14 +300,50 @@ async function processIndividualFallback(
     }
 
     lastError = error instanceof Error ? error.message : String(error);
-    logger.error(
-      {
-        messageId,
-        error: lastError,
-        stack: error instanceof Error ? error.stack : undefined,
-      },
-      "Individual fallback analysis failed",
-    );
+
+    // Infinite-loop prevention: if all retries were exhausted because the LLM
+    // consistently dropped this specific message (not a transient error),
+    // overwrite the DB entry with a terminal flag that the recovery query
+    // does NOT match.  This permanently removes it from the recovery loop
+    // while keeping it visible as an error in the dashboard.
+    if (exhaustedOnIncomplete) {
+      await updateMessagesAIAnalysisBulk([
+        {
+          messageId,
+          result: {
+            status: "error",
+            flags: JSON.stringify(["individual_analysis_exhausted"]),
+            score: 0,
+            raw: null,
+            analysis:
+              "Individual fallback exhausted all retries: LLM consistently dropped this message even in single-target mode",
+            analyzedAt: Date.now(),
+            error: lastError,
+          },
+        },
+      ]).catch((dbErr) => {
+        logger.error(
+          { messageId, error: String(dbErr) },
+          "Failed to write terminal exhausted status — message may re-enter recovery loop",
+        );
+      });
+      logger.warn(
+        { messageId },
+        "Individual fallback exhausted — marked as individual_analysis_exhausted to stop recovery loop",
+      );
+    } else {
+      // Transient failure (network/parse/DB): do NOT write terminal status.
+      // Message stays as error/analysis_incomplete in DB and will be retried
+      // by the recovery worker, subject to the individual circuit breaker.
+      logger.error(
+        {
+          messageId,
+          error: lastError,
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+        "Individual fallback analysis failed (transient) — will be retried by recovery worker",
+      );
+    }
   } finally {
     activeIndividualRequests--;
     individualInFlight.delete(messageId);
@@ -562,12 +629,27 @@ function scheduleConversationAnalysis(conversationKey: string): void {
 
         // FIX #6: trim to token budget before sending to LLM.
         // 50 tokens overhead accounts for JSON structure + id/username fields.
-        const trimmed = pickBatchWithinBudget(
+        let trimmed = pickBatchWithinBudget(
           messages,
           config.AI_ANALYSIS_MAX_TARGET_TOKENS,
           50,
         );
-        if (trimmed.length === 0) return;
+
+        // FIX #10: if every message individually exceeds the token budget,
+        // pickBatchWithinBudget returns [] — which would leave them permanently
+        // stuck as `pending`.  Fall back to the first message alone so at
+        // least one makes progress; the rest will be processed in later ticks.
+        if (trimmed.length === 0 && messages.length > 0) {
+          trimmed = messages.slice(0, 1);
+          logger.warn(
+            {
+              conversationKey,
+              messageId: messages[0]?.id,
+              tokenBudget: config.AI_ANALYSIS_MAX_TARGET_TOKENS,
+            },
+            "All messages exceed token budget — processing first message alone to avoid stuck-pending deadlock",
+          );
+        }
 
         return processBatch(conversationKey, trimmed);
       })
@@ -652,20 +734,41 @@ export function startPendingAIAnalysisWorker(): void {
       getConversationKeysWithIncompleteAnalysis(50),
     ])
       .then(([pendingKeys, incompleteKeys]) => {
+        const now = Date.now();
+
+        // FIX #9: Prune stale entries from state maps to prevent unbounded
+        // memory growth from channels/threads that are no longer active.
+        for (const [key, expiry] of conversationErrorCooldown) {
+          if (now >= expiry) conversationErrorCooldown.delete(key);
+        }
+        for (const [key, startedAt] of conversationProcessing) {
+          if (now - startedAt >= config.AI_ANALYSIS_PROCESSING_TIMEOUT_MS) {
+            conversationProcessing.delete(key);
+          }
+        }
+
+        // FIX #8: Build a set of keys already targeted for individual recovery
+        // so the batch loop below skips them, preventing a race where batch
+        // scheduling and individual scheduling collide on the same conversation.
+        const incompleteKeySet = new Set(incompleteKeys);
+
         // --- Batch recovery for `pending` messages ---
         for (const key of pendingKeys) {
           if (conversationDebounceTimers.has(key)) continue;
           if (isConversationProcessingLocked(key)) continue;
           // FIX #4: skip if individual fallback already running for this conversation.
           if (individualInFlightByConversation.has(key)) continue;
+          // FIX #8: skip if this conversation also needs individual recovery
+          // (batch processing would conflict with in-flight individual work).
+          if (incompleteKeySet.has(key)) continue;
           const cooldownUntil = conversationErrorCooldown.get(key);
-          if (cooldownUntil && Date.now() < cooldownUntil) continue;
+          if (cooldownUntil && now < cooldownUntil) continue;
           scheduleConversationAnalysis(key);
         }
 
         // --- Individual recovery for `error/analysis_incomplete` messages ---
         // Circuit breaker check: no point iterating if individual CB is active.
-        if (Date.now() >= individualCooldownUntil) {
+        if (now >= individualCooldownUntil) {
           const promises: Promise<void>[] = [];
           for (const key of incompleteKeys) {
             // Skip if individual work is already running for this conversation.
