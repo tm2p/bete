@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { AbortError } from "p-retry";
 import { Piscina } from "piscina";
 import { config } from "../config.js";
 import { createChildLogger } from "../logger.js";
@@ -227,28 +228,44 @@ async function processIndividualFallback(
 
     const analysisResult = await retryWithBackoff(
       async () => {
-        const result = await runModerationAnalysis({
-          targets: [message],
-          contextText: contextLines.join("\n"),
-          attachments,
-        });
+        try {
+          const result = await runModerationAnalysis({
+            targets: [message],
+            contextText: contextLines.join("\n"),
+            attachments,
+          });
 
-        // If the LLM still dropped our only target, convert to a retryable
-        // throw so backoff kicks in.  Track this so the catch block can
-        // distinguish it from a transient network/parse failure.
-        const stillIncomplete = result.results.some((r) =>
-          r.flags.includes("analysis_incomplete"),
-        );
-        if (stillIncomplete) {
-          exhaustedOnIncomplete = true;
-          throw new Error(
-            `LLM returned no result for single-target message ${messageId} — will retry with backoff`,
+          // If the LLM still dropped our only target, convert to a retryable
+          // throw so backoff kicks in.  Track this so the catch block can
+          // distinguish it from a transient network/parse failure.
+          const stillIncomplete = result.results.some((r) =>
+            r.flags.includes("analysis_incomplete"),
           );
-        }
+          if (stillIncomplete) {
+            exhaustedOnIncomplete = true;
+            throw new Error(
+              `LLM returned no result for single-target message ${messageId} — will retry with backoff`,
+            );
+          }
 
-        // Got a real result — clear the incomplete flag.
-        exhaustedOnIncomplete = false;
-        return result;
+          // Got a real result — clear the incomplete flag.
+          exhaustedOnIncomplete = false;
+
+          return result;
+        } catch (err: any) {
+          // Propagate AbortError so outer retry is immediately cancelled on 429.
+          if (err instanceof AbortError) {
+            throw err;
+          }
+          if (
+            err?.status === 429 ||
+            err?.status === 401 ||
+            err?.status === 403
+          ) {
+            throw new AbortError(err);
+          }
+          throw err;
+        }
       },
       {
         retries: 2,

@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { AbortError } from "p-retry";
 import { z } from "zod";
 import { config } from "../config.js";
 import { createChildLogger } from "../logger.js";
@@ -34,7 +35,10 @@ const openai = new OpenAI({
 
     // Override headers to bypass Cloudflare WAF Bot Fight Mode
     const headers = new Headers(init?.headers);
-    headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+    headers.set(
+      "User-Agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    );
     for (const key of Array.from(headers.keys())) {
       if (key.toLowerCase().startsWith("x-stainless")) {
         headers.delete(key);
@@ -610,61 +614,74 @@ CRITICAL: "message_id" HARUS berupa STRING (dibungkus tanda kutip ganda). Jangan
   try {
     const analysis = await retryWithBackoff(
       async () => {
-        const completion = await openai.chat.completions.create({
-          model: config.AI_LLM_MODEL,
-          messages: [
-            {
-              role: "user",
-              content: buildMessageContent(),
-            },
-          ],
-          temperature: 0.2,
-          top_p: 0.95,
-          max_tokens: 16384,
-          response_format: {
-            type: "json_object",
-          },
-          stream: false,
-          chat_template_kwargs: { enable_thinking: false },
-          reasoning_budget: 0,
-        } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
-
-        if (
-          !completion.choices ||
-          !Array.isArray(completion.choices) ||
-          !completion.choices[0]
-        ) {
-          throw new Error("Invalid LLM response structure");
-        }
-
-        const content = completion.choices[0].message?.content;
-        if (!content) {
-          throw new Error("No content in LLM response");
-        }
-
         try {
-          return {
-            parsed: parseModerationResponse(content, targetIds),
-            result: completion,
-          };
-        } catch (parseError) {
-          lastParseError =
-            parseError instanceof Error
-              ? parseError.message
-              : String(parseError);
-          lastInvalidContent = content;
-          log.warn(
-            {
-              error: lastParseError,
-              contentLength: content.length,
-              contentPreview: content.substring(0, 1000),
-              fullContent: content,
-              targetIds,
-              model: config.AI_LLM_MODEL,
+          const completion = await openai.chat.completions.create({
+            model: config.AI_LLM_MODEL,
+            messages: [
+              {
+                role: "user",
+                content: buildMessageContent(),
+              },
+            ],
+            temperature: 0.2,
+            top_p: 0.95,
+            max_tokens: 16384,
+            response_format: {
+              type: "json_object",
             },
-            "Failed to parse moderation response from LLM",
-          );
-          throw parseError;
+            stream: false,
+            chat_template_kwargs: { enable_thinking: false },
+            reasoning_budget: 0,
+          } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+
+          if (
+            !completion.choices ||
+            !Array.isArray(completion.choices) ||
+            !completion.choices[0]
+          ) {
+            throw new Error("Invalid LLM response structure");
+          }
+
+          const content = completion.choices[0].message?.content;
+          if (!content) {
+            throw new Error("No content in LLM response");
+          }
+
+          try {
+            return {
+              parsed: parseModerationResponse(content, targetIds),
+              result: completion,
+            };
+          } catch (parseError) {
+            lastParseError =
+              parseError instanceof Error
+                ? parseError.message
+                : String(parseError);
+            lastInvalidContent = content;
+            log.warn(
+              {
+                error: lastParseError,
+                contentLength: content.length,
+                contentPreview: content.substring(0, 1000),
+                fullContent: content,
+                targetIds,
+                model: config.AI_LLM_MODEL,
+              },
+              "Failed to parse moderation response from LLM",
+            );
+            throw parseError;
+          }
+        } catch (apiError: any) {
+          // Immediately abort retries on rate limits or auth errors so the
+          // message can return to the DB queue instead of bursting retries.
+          if (
+            apiError?.status === 429 ||
+            apiError?.status === 401 ||
+            apiError?.status === 403
+          ) {
+            throw new AbortError(apiError);
+          }
+          throw apiError;
         }
       },
       {
